@@ -61,7 +61,7 @@ else:
         assert "Panel updated." in post("/settings/add", csrf=token(results), id=entity, label="Kitchen panel")
         for _ in range(30):
             page = get("/")
-            action = re.search(r'value="(turn_on|turn_off)" aria-label="Kitchen panel power" aria-pressed="(?:false|true)" >', page)
+            action = re.search(r'value="(turn_on|turn_off)" aria-label="Kitchen panel power" aria-pressed="(?:false|true)"\s+data-available="yes">', page)
             if action:
                 break
             time.sleep(0.1)

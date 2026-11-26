@@ -8,7 +8,7 @@
   var board = get('board'), save = get('save-layout'), note = get('edit-note');
   var label = get('widget-label'), remove = get('remove-widget'), weather = get('weather-source');
   var add = get('add-widget'), results = get('results'), search = get('device-search');
-  var offset = 0, chosenType = 'all', query = '';
+  var offset = 0, chosenType = 'all', query = '', dirty = false, scrollTimer = null;
 
   function get(id) { return document.getElementById(id); }
   function request(path, fields, done) {
@@ -48,19 +48,21 @@
     return true;
   }
   function changed(text) {
+    dirty = true;
     save.disabled = saving;
     note.textContent = text || 'Unsaved layout changes.';
   }
-  function move(cell, width) {
-    var tile = find(picked);
+  function move(cell, width, id, focus) {
+    var tile = find(id || picked);
     if (!tile || saving) { return; }
-    if (!fits(cell, width, picked)) { note.textContent = 'This position is occupied or the widget does not fit.'; return; }
+    if (!fits(cell, width, tile.id)) { note.textContent = 'This position is occupied or the widget does not fit.'; return; }
+    picked = tile.id;
     tile.cell = cell; tile.width = width;
-    changed(); draw();
+    changed(); draw(focus ? picked : null);
   }
-  function draw() {
+  function draw(keepFocus) {
     var selected = find(picked), slots = {}, i, cells, row, tile, slot, cell, grip, moves;
-    var focusId = document.activeElement && document.activeElement.getAttribute('data-focus');
+    var focusId = keepFocus || (document.activeElement && document.activeElement.getAttribute('data-focus'));
     var focusTarget = null;
     for (i = 0, cells = 8; i < tiles.length; i += 1) {
       cells = Math.max(cells, Math.ceil((tiles[i].cell + 1) / 4) * 4 + 4);
@@ -80,12 +82,15 @@
         cell.setAttribute('data-focus', tile.id);
         cell.setAttribute('aria-pressed', tile.id === picked ? 'true' : 'false');
         slot.appendChild(cell);
-        grip = button('↔ Move', function () { picked = this.getAttribute('data-grip'); draw(); });
+        grip = button('↔ Move', function () {
+          picked = this.getAttribute('data-grip'); draw(picked);
+          note.textContent = 'Choose a free cell. You can scroll to another row first.';
+        });
         grip.className = 'handle'; grip.setAttribute('data-grip', tile.id);
         grip.setAttribute('aria-label', 'Move ' + tile.label);
         slot.appendChild(grip);
       } else {
-        cell = button('+', function () { var t = find(picked); if (t) { move(Number(this.getAttribute('data-cell')), t.width); } });
+        cell = button('+', function () { var t = find(picked); if (t) { move(Number(this.getAttribute('data-cell')), t.width, t.id, true); } });
         cell.className = 'cell empty-cell'; cell.setAttribute('data-cell', i);
         cell.setAttribute('aria-label', 'Move to row ' + (Math.floor(i / 4) + 1) + ', column ' + (i % 4 + 1));
         cell.disabled = !selected;
@@ -120,25 +125,39 @@
     var id = event.target.getAttribute('data-grip');
     if (id && !saving && event.touches.length === 1) {
       event.preventDefault();
-      drag = { id: id, mark: null };
-      note.textContent = 'Drag to a free cell.';
+      drag = { id: id, mark: null, touch: event.touches[0], startX: event.touches[0].clientX, startY: event.touches[0].clientY };
+      note.textContent = 'Drag to a free cell, or tap Move and choose one.';
+      scrollTimer = window.setInterval(function () {
+        if (!drag || !drag.moved) { return; }
+        var y = drag.touch.clientY, delta = y < 44 ? -15 : (y > window.innerHeight - 44 ? 15 : 0);
+        if (delta) { window.scrollBy(0, delta); markDestination(); }
+      }, 35);
     }
   }, false);
   board.addEventListener('touchmove', function (event) {
     if (!drag || event.touches.length !== 1) { return; }
     event.preventDefault();
-    var cell = touchCell(event.touches[0]), tile = find(drag.id);
-    highlight(cell && tile && fits(Number(cell.getAttribute('data-cell')), tile.width, tile.id) ? cell : null);
+    drag.touch = event.touches[0];
+    drag.moved = drag.moved || Math.abs(drag.touch.clientX - drag.startX) + Math.abs(drag.touch.clientY - drag.startY) > 6;
+    markDestination();
   }, false);
+  function markDestination() {
+    var cell = touchCell(drag.touch), tile = find(drag.id);
+    highlight(cell && tile && fits(Number(cell.getAttribute('data-cell')), tile.width, tile.id) ? cell : null);
+  }
+  function endDrag() { highlight(null); window.clearInterval(scrollTimer); drag = null; }
   board.addEventListener('touchend', function (event) {
     if (!drag) { return; }
     event.preventDefault();
-    var cell = touchCell(event.changedTouches[0]), widget = find(drag.id);
-    highlight(null); picked = drag.id; drag = null;
-    if (cell && widget) { move(Number(cell.getAttribute('data-cell')), widget.width); }
-    else { draw(); note.textContent = 'Select a free cell to place the widget.'; }
+    var touch = event.changedTouches[0], cell = touchCell(touch), widget = find(drag.id);
+    var moved = drag.moved || Math.abs(touch.clientX - drag.startX) + Math.abs(touch.clientY - drag.startY) > 6;
+    endDrag();
+    if (cell && widget) { move(Number(cell.getAttribute('data-cell')), widget.width, widget.id, true); }
+    else if (!moved && widget) {
+      picked = widget.id; draw(picked); note.textContent = 'Scroll if needed, then tap a free cell.';
+    } else { note.textContent = 'Drop on a free cell to move the widget.'; }
   }, false);
-  board.addEventListener('touchcancel', function () { if (drag) { highlight(null); drag = null; } }, false);
+  board.addEventListener('touchcancel', function () { if (drag) { endDrag(); } }, false);
 
   function setupActions() {
     var widths = root.querySelectorAll('[data-width]'), arrows = root.querySelectorAll('[data-move]'), i;
@@ -175,11 +194,17 @@
       }(item)));
       detail.textContent = item.id; entry.appendChild(detail); li.appendChild(entry); results.appendChild(li);
     }
-    if (offset) { get('pages').appendChild(button('Previous', function () { offset = Math.max(0, offset - 30); load(); })); }
-    if (offset + 30 < data.total) { get('pages').appendChild(button('Next', function () { offset += 30; load(); })); }
+    if (offset) { get('pages').appendChild(button('Previous', function () { offset = Math.max(0, offset - 30); load(true); })); }
+    if (offset + 30 < data.total) { get('pages').appendChild(button('Next', function () { offset += 30; load(true); })); }
   }
-  function load() {
+  function load(focusResults) {
     var version = ++searchSerial;
+    preview = null;
+    get('preview').textContent = 'Choose a result to preview it.';
+    get('add-label').value = '';
+    add.disabled = true;
+    add.textContent = 'Add to layout';
+    if (focusResults) { get('search-note').focus(); }
     get('search-note').textContent = 'Loading devices…';
     results.textContent = ''; get('pages').textContent = '';
     request('/catalogue?type=' + encodeURIComponent(chosenType) + '&q=' + encodeURIComponent(query) + '&offset=' + offset, null, function (status, data) {
@@ -215,13 +240,18 @@
     function filterZones() {
       var query = input.value.toLowerCase().trim().replace(/ /g, '_');
       var matches = zones.filter(function (name) { return name.toLowerCase().indexOf(query) !== -1; });
-      var i, option;
+      if (!query && model.timezone !== 'auto') {
+        matches = [model.timezone].concat(matches.filter(function (name) { return name !== model.timezone; }));
+      }
+      var i, option = document.createElement('option');
       choice.textContent = '';
+      option.value = ''; option.textContent = 'Choose a time zone'; choice.appendChild(option);
       for (i = 0; i < Math.min(matches.length, 50); i += 1) {
         option = document.createElement('option'); option.value = matches[i];
         option.textContent = matches[i].replace(/_/g, ' '); choice.appendChild(option);
       }
-      submit.disabled = busy || !matches.length;
+      choice.value = !query && model.timezone !== 'auto' ? model.timezone : '';
+      submit.disabled = busy || !choice.value;
       message.textContent = matches.length > 50 ? 'Type a city or region to narrow the list.' : (matches.length ? 'Applies immediately.' : 'No matching time zones.');
     }
     function saveZone(value) {
@@ -231,12 +261,15 @@
       request('/timezone', { timezone: value }, function (status, data) {
         busy = false; auto.disabled = false; submit.disabled = !choice.value;
         if (status === 200) {
+          model.timezone = data.timezone;
+          if (model.timezone === 'auto') { input.value = ''; filterZones(); }
           get('current-zone').textContent = 'Current: ' + data.label;
           message.textContent = 'Time zone saved.';
         } else { message.textContent = data.error || 'Could not save the time zone.'; }
       });
     }
     input.oninput = filterZones;
+    choice.onchange = function () { submit.disabled = busy || !choice.value; };
     submit.onclick = function () { saveZone(choice.value); };
     auto.onclick = function () { saveZone('auto'); };
     request('/timezones', null, function (status, data) {
@@ -291,10 +324,19 @@
   save.onclick = function () {
     saving = true; save.disabled = true; label.disabled = true; weather.disabled = true; note.textContent = 'Saving layout…';
     request('/layout', { widgets: JSON.stringify(tiles), weather: model.weather }, function (status, data) {
-      if (status === 200 && data.saved) { window.location.assign('/'); }
+      if (status === 200 && data.saved) { dirty = false; window.location.assign('/'); }
       else { saving = false; weather.disabled = false; draw(); changed(data.error || 'Could not save. Try again.'); }
     });
   };
+  get('discard-layout').onclick = function () { dirty = false; };
+  window.addEventListener('beforeunload', function (event) {
+    if (dirty) { event.preventDefault(); event.returnValue = ''; }
+  }, false);
+  var exit = document.querySelector('nav a[href="/"]');
+  if (exit) { exit.onclick = function (event) {
+    if (dirty && !window.confirm('Discard your unsaved layout changes?')) { event.preventDefault(); }
+    else { dirty = false; }
+  }; }
   var themes = root.querySelectorAll('[data-theme-choice]');
   for (var i = 0; i < themes.length; i += 1) { themes[i].onclick = changeTheme; }
   setupActions(); draw(); load(); loadWeather(); setupTimezones();

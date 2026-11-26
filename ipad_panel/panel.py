@@ -116,7 +116,9 @@ class Panel:
         self.lock = Lock()
         self.pending = set()
         self.revision = 0
-        self.demo_states = dict((entity.id, value) for entity, value in DEMO)
+        self.demo_states = {entity.id: value for entity, value in DEMO}
+        self.demo_states.update({"sensor.demo_outside": ("4", "°C"),
+                                 "weather.demo": (DEMO_WEATHER["value"], DEMO_WEATHER["unit"])})
         self.next_timezone_check = 0
         self.next_weather_scan = 0
         self.auto_weather_id = ""
@@ -321,8 +323,7 @@ class Panel:
                 return
             revision = self.revision
         try:
-            values = (tuple(self.demo_states.get(entity.id, ("4", "°C") if entity.id == "sensor.demo_outside" else ("—", ""))
-                            for entity in entities) if self.settings.demo
+            values = (tuple(self.demo_states.get(entity.id, ("—", "")) for entity in entities) if self.settings.demo
                       else tuple(self.get_state(entity) for entity in entities))
             try:
                 weather = self.read_weather(self.weather_source)

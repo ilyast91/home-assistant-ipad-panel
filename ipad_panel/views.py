@@ -56,6 +56,7 @@ def dashboard_data(settings, snapshot, now, weather_id, zone=None, zone_label=No
     return {
         'values': {e.id: value for e, value in zip(snapshot.entities, snapshot.values)},
         'clock': local.strftime('%H:%M'), 'date': local.strftime('%A, %d %B'),
+        'clockEpoch': int(local.replace(tzinfo=ZoneInfo('UTC')).timestamp() * 1000),
         'updated': updated.astimezone(zone).strftime('%Y-%m-%d %H:%M:%S') if updated else '—',
         'zoneLabel': zone_label or zone.key,
         'stale': stale, 'weather': {key: weather[key] for key in ('id', 'condition', 'value', 'unit')} if weather else None,
@@ -81,7 +82,7 @@ def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', 
             inner = (f'<form method="post" action="/control" class="control-form">{fields(csrf, entity.id)}'
                      f'<button class="tile control{" is-on" if value == "on" else ""}" type="submit" name="action" '
                      f'value="{"turn_off" if value == "on" else "turn_on"}" aria-label="{label} power" '
-                     f'aria-pressed="{str(value == "on").lower()}" {"" if available else "disabled"}>'
+                     f'aria-pressed="{str(value == "on").lower()}" {"" if available else "disabled"} data-available="{"yes" if available else "no"}">'
                      f'{label_html}<span class="power" aria-hidden="true">⏻</span><strong class="tile-value">{state}</strong></button>'
                      '<span class="feedback" role="status"></span></form>')
         else:
@@ -107,9 +108,9 @@ def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', 
         f'<div class="weather" id="weather-card" {"" if status["weather"] else "hidden"}><span id="weather-icon" aria-hidden="true">{status["weatherIcon"]}</span><div><strong id="weather-value">'
         f'{escape(weather["value"])} {escape(weather["unit"])}</strong>'
         f'<span id="weather-condition">{escape(weather["condition"])}</span></div></div>')
-    body = (f'<div id="dashboard" data-interval="{settings.refresh_seconds}"><header class="overview">'
+    body = (f'<div id="dashboard" data-interval="{settings.refresh_seconds}" data-clock="{status["clockEpoch"]}"><header class="overview">'
             f'<div><p class="eyebrow">{escape(settings.title)}</p><h1 class="clock" id="clock">{status["clock"]}</h1>'
-            f'<p id="date">{status["date"]}</p><p class="hint" id="timezone-label">{escape(status["zoneLabel"])}</p></div><div class="conditions">{weather_html}'
+            f'<p id="date">{status["date"]}</p><p class="hint" id="timezone-label">{escape(status["zoneLabel"])}</p><p class="warning" id="clock-sync" role="status"></p></div><div class="conditions">{weather_html}'
             f'<p class="update{" warning" if status["stale"] else ""}" id="update"><span id="connection">{status["status"]}</span> '
             f'· Last update <time id="last-update">{status["updated"]}</time></p></div></header>')
     if notice:
@@ -128,7 +129,7 @@ def editor_page(panel, csrf):
     body = (f'<div id="editor" data-layout="{escape(json.dumps(model))}">{fields(csrf)}'
             '<div class="editor-header"><div><p class="eyebrow">Panel settings</p><h1>Arrange widgets</h1>'
             '<p class="hint">Select a widget. Drag its handle, tap a cell, or use the arrows to move it.</p></div>'
-            '<div class="toolbar"><a class="button" href="/">Cancel</a> <button type="button" id="save-layout" class="primary" disabled>Save layout</button></div></div>'
+            '<div class="toolbar"><a class="button" id="discard-layout" href="/">Discard draft</a> <button type="button" id="save-layout" class="primary" disabled>Save layout</button></div></div>'
             '<div class="appearance"><strong>Panel theme</strong><div class="toolbar" role="group" aria-label="Panel theme">'
             f'<button type="button" data-theme-choice="light" aria-pressed="{str(layout.theme == "light").lower()}">Light</button> '
             f'<button type="button" data-theme-choice="dark" aria-pressed="{str(layout.theme == "dark").lower()}">Dark</button></div></div>'
@@ -147,7 +148,7 @@ def editor_page(panel, csrf):
             '<form id="device-search" class="search"><label>Find by name or entity ID<input name="q" maxlength="100" placeholder="Living room, sensor…"></label>'
             '<label>Type<select name="type"><option value="all">All</option><option value="light">Lights</option>'
             '<option value="switch">Switches</option><option value="sensor">Sensors</option><option value="weather">Weather</option></select></label>'
-            '<button type="submit">Search</button></form><div class="editor-columns"><section><p id="search-note" role="status" class="hint"></p>'
+            '<button type="submit">Search</button></form><div class="editor-columns"><section><p id="search-note" role="status" class="hint" tabindex="-1"></p>'
             '<ul id="results" class="results"></ul><div id="pages" class="toolbar"></div></section>'
             '<section class="inspector"><h2>Preview</h2><div id="preview" class="tile"><span class="hint">Choose a result to preview it.</span></div>'
             '<label>Label on panel<input id="add-label" maxlength="120"></label><button id="add-widget" class="primary" type="button" disabled>Add to layout</button></section></div></div></details>'

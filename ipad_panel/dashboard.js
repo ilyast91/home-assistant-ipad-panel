@@ -4,8 +4,18 @@
   if (!root || !window.XMLHttpRequest) { return; }
   var slots = root.querySelectorAll('[data-id]'), pending = {}, serial = 0, applied = 0;
   var interval = Number(root.getAttribute('data-interval')) * 1000;
+  var clockEpoch = Number(root.getAttribute('data-clock')), syncedAt = Date.now(), connected = true;
+  var weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
   function text(id, value) { document.getElementById(id).textContent = value; }
+  function pad(n) { return n < 10 ? '0' + n : String(n); }
+  function tick() {
+    // The server encodes its local wall time as UTC fields for clients without time-zone support.
+    var local = new Date(clockEpoch + Date.now() - syncedAt);
+    text('clock', pad(local.getUTCHours()) + ':' + pad(local.getUTCMinutes()));
+    text('date', weekdays[local.getUTCDay()] + ', ' + pad(local.getUTCDate()) + ' ' + months[local.getUTCMonth()]);
+  }
   function request(method, path, body, done) {
     var xhr = new XMLHttpRequest();
     xhr.open(method, path, true);
@@ -25,9 +35,12 @@
     if ((!only && version < applied) || !data.values) { return; }
     if (!only) {
       applied = version;
-      text('clock', data.clock);
-      text('date', data.date);
+      connected = true;
+      clockEpoch = data.clockEpoch;
+      syncedAt = Date.now();
+      tick();
       text('timezone-label', data.zoneLabel);
+      text('clock-sync', '');
       text('last-update', data.updated);
       text('connection', data.status);
       document.getElementById('update').className = 'update' + (data.stale ? ' warning' : '');
@@ -49,7 +62,8 @@
         button.className = 'tile control' + (flag ? ' is-on' : '');
         button.value = flag ? 'turn_off' : 'turn_on';
         button.setAttribute('aria-pressed', flag ? 'true' : 'false');
-        button.disabled = data.stale || (value[0] !== 'on' && value[0] !== 'off');
+        button.setAttribute('data-available', !data.stale && (value[0] === 'on' || value[0] === 'off') ? 'yes' : 'no');
+        button.disabled = !connected || button.getAttribute('data-available') !== 'yes';
         button.querySelector('.tile-value').textContent = flag ? 'On' : (value[0] === 'off' ? 'Off' : 'Unavailable');
       } else {
         slot.querySelector('.tile-value').textContent = value[0] === 'unavailable' || value[0] === 'unknown' ? 'Unavailable' : value[0];
@@ -62,14 +76,16 @@
     var version = ++serial;
     request('GET', '/data', null, function (code, data) {
       if (code === 401) { window.location.replace('/'); return; }
-      if (code === 200) { apply(data, version); }
+      if (code === 200 && data.values) { apply(data, version); }
       else if (version >= applied) {
+        connected = false;
         text('connection', 'Connection lost');
+        text('clock-sync', 'Clock not synchronized');
         document.getElementById('update').className = 'update warning';
         var buttons = root.querySelectorAll('.control');
         for (var i = 0; i < buttons.length; i += 1) { buttons[i].disabled = true; }
       }
-      window.setTimeout(poll, interval);
+      window.setTimeout(poll, connected ? interval : Math.min(interval, 5000));
     });
   }
   function control(event) {
@@ -86,7 +102,7 @@
       '&id=' + encodeURIComponent(id) + '&action=' + encodeURIComponent(button.value), function (code, result) {
       delete pending[id];
       button.removeAttribute('aria-busy');
-      button.disabled = false;
+      button.disabled = !connected || button.getAttribute('data-available') !== 'yes';
       // Ignore polls started before the command finished; their state may predate confirmation.
       applied = ++serial;
       if (code === 200) { apply(result, applied, id); }
@@ -97,5 +113,6 @@
   }
   var forms = root.querySelectorAll('.control-form');
   for (var j = 0; j < forms.length; j += 1) { forms[j].addEventListener('submit', control, false); }
+  window.setInterval(tick, 1000);
   window.setTimeout(poll, interval);
 }());

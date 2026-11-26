@@ -4,6 +4,8 @@
 
 - Use the Home Assistant time zone by default on new installations, with a searchable manual override in Settings. Keep the last detected zone across restarts.
 - Detect HA weather entities automatically and show current conditions next to the clock. Existing explicit weather sources are preserved.
+- Keep the dashboard clock moving between refreshes and during an outage, clearly marking loss of synchronization. Keep unavailable controls locked after failed commands.
+- Protect unsaved layouts, preserve selection and keyboard focus while moving tiles, add edge scrolling, and clear device previews when filters change.
 
 ## 0.3.0
 

@@ -58,16 +58,37 @@ try {
   await js('document.querySelector("#dashboard button[aria-pressed=true]").click()');
   await wait('document.querySelector(".feedback").textContent === "State confirmed"');
   assert.equal(await js('document.querySelector("button.control").getAttribute("aria-pressed")'), 'false');
+  const clock = await js('document.getElementById("clock").textContent');
+  await js('var realNow = Date.now; Date.now = function () { return realNow() + 61000; }');
+  await wait(`document.getElementById('clock').textContent !== ${JSON.stringify(clock)}`);
+  await js('Date.now = realNow');
   await js(`document.querySelector('a[href="/edit"]').click()`);
   await wait('document.querySelector("#board [data-widget]")');
   await wait('document.getElementById("zone-choice").options.length > 0');
   await js(`document.getElementById('timezone-settings').open = true;
     var search = document.getElementById('zone-query'); search.value = 'Moscow'; search.dispatchEvent(new Event('input'));
+    if (!document.getElementById('save-zone').disabled) { throw Error('First search match must not be selected'); }
+    var choice = document.getElementById('zone-choice'); choice.value = 'Europe/Moscow'; choice.dispatchEvent(new Event('change'));
     document.getElementById('save-zone').click()`);
   await wait('document.getElementById("current-zone").textContent === "Current: Europe/Moscow"');
   await js('document.querySelector("[data-theme-choice=light]").click()');
   await wait('document.documentElement.getAttribute("data-theme") === "light"');
-  await js(`document.querySelector('[data-widget="sensor.demo_temperature"]').click(); document.querySelector('[data-cell="8"]').click(); document.querySelector('[data-width="2"]').click()`);
+  await js(`(function () {
+    var sensor = '[data-widget="sensor.demo_temperature"]';
+    document.querySelector(sensor).click();
+    var rect = document.querySelector('[data-cell="11"]').getBoundingClientRect();
+    var handle = document.querySelector('[data-grip="light.demo_living"]');
+    var touch = { clientX: rect.left + 5, clientY: rect.top + 5 };
+    handle.dispatchEvent(Object.assign(new Event('touchstart', { bubbles:true, cancelable:true }), { touches:[touch] }));
+    handle.dispatchEvent(Object.assign(new Event('touchend', { bubbles:true, cancelable:true }), { changedTouches:[touch] }));
+    if (document.getElementById('selected-id').textContent !== 'sensor.demo_temperature') { throw Error('Invalid drop changed selection'); }
+    var free = document.querySelector('[data-cell="8"]'); free.focus(); free.click();
+    if (document.activeElement.getAttribute('data-widget') !== 'sensor.demo_temperature') { throw Error('Move lost focus'); }
+    document.querySelector('[data-width="2"]').click();
+    window.confirm = function () { return false; };
+    document.querySelector('nav a[href="/"]').click();
+  }())`);
+  assert.equal(await js('location.pathname'), '/edit');
   assert.match(await js(`document.querySelector('[data-widget="sensor.demo_temperature"]').textContent`), /2 × 1/);
   await js(`(function () {
     var handle = document.querySelector('[data-grip="sensor.demo_humidity"]');
@@ -80,6 +101,11 @@ try {
   await wait(`document.querySelectorAll('.board-row')[2].querySelector('[data-widget="sensor.demo_humidity"]')`);
   await js('document.querySelector("#device-search input").value="outdoor"; document.querySelector("#device-search button").click()');
   await wait('document.querySelector("#results button") && /Outdoor temperature/.test(document.querySelector("#results").textContent)');
+  await js(`document.querySelector('#results button').click();
+    var type = document.querySelector('#device-search select'); type.value = 'weather'; type.dispatchEvent(new Event('change'));`);
+  assert.equal(await js('document.getElementById("add-widget").disabled'), true);
+  await js(`var type = document.querySelector('#device-search select'); type.value = 'all'; type.dispatchEvent(new Event('change'));`);
+  await wait('document.querySelector("#results button") && /Outdoor temperature/.test(document.querySelector("#results").textContent)');
   await js('document.querySelector("#results button").click(); document.getElementById("add-widget").click()');
   await js('document.getElementById("save-layout").click()');
   await wait(`document.querySelector('#dashboard [data-id="sensor.demo_outside"]')`);
@@ -88,7 +114,29 @@ try {
   assert.equal(await js(`document.querySelector('[data-id="sensor.demo_temperature"]').classList.contains('w2')`), true);
   await command('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 1, mobile: true });
   assert.equal(await js('document.documentElement.scrollWidth <= window.innerWidth'), true);
-  console.log('Browser smoke passed: full-tile control, weather, timestamps, light theme, touch move, resize, catalogue, save, mobile width.');
+  await command('Page.enable');
+  await command('Page.addScriptToEvaluateOnNewDocument', { source: `(function () {
+    var RealXHR = window.XMLHttpRequest, realTimeout = window.setTimeout;
+    window.setTimeout = function (fn, delay) { return realTimeout(fn, Math.min(delay, 650)); };
+    window.XMLHttpRequest = function () {
+      var native = new RealXHR(), path, method, fake = this;
+      this.open = function (verb, url) { method = verb; path = url; native.open(verb, url, true); };
+      this.setRequestHeader = function (key, value) { native.setRequestHeader(key, value); };
+      this.send = function (body) {
+        if (path === '/data' || (path === '/control' && method === 'POST')) {
+          realTimeout(function () { fake.status = path === '/data' ? 503 : 502; fake.responseText = '{}'; fake.onload(); }, path === '/data' ? 15 : 1000);
+        } else { native.onload = function () { fake.status = native.status; fake.responseText = native.responseText; fake.onload(); }; native.send(body); }
+      };
+    };
+  }());` });
+  await command('Page.reload');
+  await wait('document.readyState === "complete" && typeof realNow === "undefined" && document.querySelector("#dashboard .control:not(:disabled)")');
+  await js('document.querySelector("#dashboard .control:not(:disabled)").click()');
+  await wait('document.getElementById("connection").textContent === "Connection lost"');
+  await wait('document.querySelector(".feedback.error")');
+  assert.equal(await js('Array.prototype.every.call(document.querySelectorAll(".control"), function (button) { return button.disabled; })'), true);
+  assert.equal(await js('document.getElementById("clock-sync").textContent'), 'Clock not synchronized');
+  console.log('Browser smoke passed: controls (including outage), clock, weather, themes, grid, focus, draft protection, catalogue and time zone.');
 } finally {
   if (socket) { socket.close(); }
   chrome.kill();

@@ -11,7 +11,7 @@ button:disabled { opacity: .65; cursor: default; }
 :focus { outline: 2px solid #d8ed8b; outline-offset: 2px; }
 .button { display: inline-block; text-decoration: none; }
 button.primary, button[aria-pressed=true] { background: #d8ed8b; border-color: #d8ed8b; color: #172413; font-weight: bold; }
-input, select { max-width: 100%; background: #16231c; }
+input, select { max-width: 100%; background: #16231c; border-color: #728c7d; }
 label { display: block; margin: 10px 0; font-size: 14px; }
 label input, label select { display: block; width: 100%; margin-top: 4px; }
 nav { margin-bottom: 20px; text-align: right; }
@@ -31,6 +31,7 @@ nav form, .entry form { display: inline-block; }
 .weather strong { display: block; font-size: 25px; line-height: 1.14; }
 .weather #weather-condition { display: block; font-size: 12px; }
 .update { margin-bottom: 0; }
+#clock-sync:empty { display: none; }
 .update time { color: #f1f5e9; font-weight: bold; white-space: nowrap; }
 .notice, .warning { color: #ffd38d; }
 .tile-row { list-style: none; margin: 0 -4px 8px; padding: 0; font-size: 0; }
@@ -70,7 +71,7 @@ nav form, .entry form { display: inline-block; }
 .cell { display: block; position: relative; border: 1px dashed #657a6b; min-height: 86px; width: 100%; padding: 7px; text-align: left; font-size: 13px; word-wrap: break-word; }
 .cell.selected { border: 2px solid #d8ed8b; background: #33422a; }
 .cell.empty-cell { text-align: center; color: #b8cbb8; font-size: 20px; background: #192a21; }
-.handle { display: block; width: 100%; min-height: 38px; margin-top: 4px; font-size: 13px; cursor: move; -webkit-user-select: none; }
+.handle { display: block; width: 100%; min-height: 38px; margin-top: 4px; font-size: 13px; cursor: pointer; -webkit-user-select: none; }
 .board .drag-target { border-color: #d8ed8b; outline: 2px solid #d8ed8b; outline-offset: -2px; }
 .catalogue { margin-bottom: 10px; }
 summary { min-height: 44px; padding: 10px 4px; font-weight: bold; }
