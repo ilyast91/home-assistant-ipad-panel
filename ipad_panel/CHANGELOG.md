@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4
+
+- Align sensor values and units on one line and allow up to two lines for widget names without changing the saved grid.
+- Keep climate controls clear of wrapped names on tablet and mobile layouts.
+
 ## 0.3.3
 
 - Add four widget sizes and preserve placements. Tall widgets span two rows without stretching their neighbours.

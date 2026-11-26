@@ -129,7 +129,7 @@ def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', 
         controlled = domain in CONTROL_DOMAINS
         label = escape(entity.label)
         kind = 'temperature' if domain == 'climate' or (domain == 'sensor' and unit in {'°C', '°F'}) else domain
-        label_html = f'<span class="tile-label">{glyph(kind)} {label}</span>'
+        label_html = f'<span class="tile-label">{glyph(kind)}<span class="tile-name">{label}</span></span>'
         if domain == 'climate':
             inner = climate_tile(entity, status['climates'].get(entity.id), status['stale'], csrf, label_html)
         elif controlled and csrf:
@@ -143,8 +143,9 @@ def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', 
                      '<span class="feedback" role="status"></span></form>')
         else:
             text = 'Unavailable' if value in {'unavailable', 'unknown'} else value
-            inner = (f'<div class="tile">{label_html}<strong class="tile-value">{escape(text)}</strong>'
-                     f'<span class="tile-unit">{escape(unit)}</span></div>')
+            inner = (f'<div class="tile">{label_html}<div class="tile-reading">'
+                     f'<strong class="tile-value">{escape(text)}</strong> '
+                     f'<span class="tile-unit">{escape(unit)}</span></div></div>')
         row, column = divmod(entity.cell, COLUMNS)
         row_count = max(row_count, row + entity.height)
         size = f'{entity.width}x{entity.height}'

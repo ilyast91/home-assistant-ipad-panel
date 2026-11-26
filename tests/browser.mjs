@@ -99,6 +99,7 @@ try {
     handle.dispatchEvent(Object.assign(new Event('touchend', { bubbles:true, cancelable:true }), { changedTouches:[touch] }));
   }())`);
   await wait(`document.querySelectorAll('.board-row')[2].querySelector('[data-widget="sensor.demo_humidity"]')`);
+  await js(`var label = document.getElementById('widget-label'); label.value = 'Терморегулятор гостиная Дельта температуры'; label.dispatchEvent(new Event('input'))`);
   await js(`document.querySelector('[data-widget="sensor.demo_temperature"]').click();
     document.querySelector('[data-width="2"][data-height="2"]').click()`);
   assert.match(await js(`document.querySelector('[data-widget="sensor.demo_temperature"]').textContent`), /2 × 2/);
@@ -122,7 +123,7 @@ try {
   await js(`var type = document.querySelector('#device-search select'); type.value = 'climate';
     document.querySelector('#device-search input').value = ''; document.querySelector('#device-search button').click()`);
   await wait('document.querySelector("#results button") && /Hall thermostat/.test(document.querySelector("#results").textContent)');
-  await js('document.querySelector("#results button").click(); document.getElementById("add-widget").click()');
+  await js(`document.querySelector('#results button').click(); document.getElementById('add-label').value = 'Терморегулятор гостиная Кондиционер'; document.getElementById('add-widget').click()`);
   await js('document.getElementById("save-layout").click()');
   await wait(`document.querySelector('#dashboard [data-id="sensor.demo_outside"]')`);
   assert.equal(await js('document.documentElement.getAttribute("data-theme")'), 'light');
@@ -147,16 +148,29 @@ try {
   assert.equal(await js(`document.querySelector('.climate-disclosure').open`), false);
   assert.equal(await js(`document.querySelector('[data-id="sensor.demo_temperature"]').getAttribute('data-size')`), '2x2');
   assert.equal(await js(`document.querySelector('[data-id="binary_sensor.demo_door"]').getAttribute('data-size')`), '1x2');
-  for (const [width, height] of [[768, 1024], [375, 667]]) {
+  for (const [width, height] of [[1024, 768], [768, 1024], [375, 667]]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true });
     assert.equal(await js('document.documentElement.scrollWidth <= window.innerWidth'), true);
     const space = await js(`(function () {
       var tile = document.querySelector('.climate').getBoundingClientRect();
       var summary = document.querySelector('.climate-disclosure summary').getBoundingClientRect();
       var stepper = document.querySelector('.climate-overview .climate-stepper').getBoundingClientRect();
-      return { bottom: tile.bottom - Math.max(summary.bottom, stepper.bottom), right: tile.right - Math.max(summary.right, stepper.right) };
+      var heading = document.querySelector('.climate .tile-label').getBoundingClientRect();
+      return { bottom: tile.bottom - Math.max(summary.bottom, stepper.bottom), right: tile.right - Math.max(summary.right, stepper.right),
+               headingGap: summary.top - heading.bottom, controlsGap: stepper.top - summary.bottom };
     }())`);
-    assert.ok(space.bottom >= 0 && space.right >= 0, 'Climate controls overflow the ' + width + 'px tile: ' + JSON.stringify(space));
+    assert.ok(Object.values(space).every(gap => gap >= 0), 'Climate controls overlap or overflow the ' + width + 'px tile: ' + JSON.stringify(space));
+    const sensor = await js(`(function () {
+      var tile = document.querySelector('[data-id="sensor.demo_humidity"]');
+      var label = tile.querySelector('.tile-label');
+      var value = tile.querySelector('.tile-value'), unit = tile.querySelector('.tile-unit');
+      var text = label.querySelector('.tile-name');
+      var vb = value.getBoundingClientRect(), ub = unit.getBoundingClientRect();
+      return {wrap: !!text && getComputedStyle(text).whiteSpace === 'normal',
+              lines: !!text && text.clientHeight <= 36 && text.clientHeight > 18,
+              aligned: ub.top < vb.bottom && ub.bottom > vb.top && ub.left >= vb.right && Math.abs(ub.bottom - vb.bottom) < 8};
+    }())`);
+    assert.deepEqual(sensor, {wrap: true, lines: true, aligned: true}, 'Bad sensor text layout at ' + width + 'px');
   }
   await command('Page.enable');
   await command('Page.addScriptToEvaluateOnNewDocument', { source: `(function () {

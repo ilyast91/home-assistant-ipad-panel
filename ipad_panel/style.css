@@ -41,8 +41,13 @@ nav form, .entry form { display: inline-block; }
 .widget-grid .h1 { height: 11rem; }
 .widget-grid .h2 { height: 22rem; }
 .widget-grid .tile, .widget-grid .control-form { height: 100%; }
-.widget-grid .tile-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.widget-grid .tile-value { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.widget-grid .tile-label { position: relative; min-height: 36px; padding-left: 36px; line-height: 18px; }
+.widget-grid .tile-label .glyph { position: absolute; top: 0; left: 0; }
+.tile-name { display: block; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; max-height: 36px; overflow: hidden; }
+.widget-grid .tile-value, .tile-reading { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-reading { line-height: 1.2; margin: 9px 0 5px; }
+.tile-reading .tile-value { display: inline; margin: 0; }
+.tile-reading .tile-unit { vertical-align: baseline; }
 .widget-grid .tile:focus { outline-offset: -3px; }
 .widget-grid .control-form .feedback { position: absolute; left: 16px; right: 16px; bottom: 10px; pointer-events: none; }
 .w1 { width: 25%; }
@@ -63,7 +68,7 @@ nav form, .entry form { display: inline-block; }
 .climate-overview .climate-target[hidden] { display: none; }
 .climate-overview .climate-target strong { font-size: 13px; }
 .climate-overview .climate-stepper { position: absolute; right: 0; top: 0; }
-.climate-disclosure, .climate-readonly { position: absolute; top: 41px; right: 10px; max-width: 47%; }
+.climate-disclosure, .climate-readonly { position: absolute; top: 46px; right: 10px; max-width: 47%; }
 .climate-caption { display: block; font-size: 11px; }
 .climate-reading .climate-caption { line-height: 12px; }
 .climate-current { font-size: 20px; white-space: nowrap; }
@@ -160,9 +165,10 @@ summary { min-height: 44px; padding: 10px 4px; font-weight: bold; }
   .conditions { text-align: left; margin-top: 8px; }
   .tile { padding: 8px; }
   .glyph { width: 24px; height: 24px; padding: 4px; }
+  .widget-grid .tile-label { padding-left: 29px; }
   .tile-value { font-size: 25px; }
   .climate-overview .climate-target { padding-right: 98px; }
-  .climate-disclosure, .climate-readonly { right: 8px; }
+  .climate-disclosure, .climate-readonly { top: 44px; right: 8px; }
   .board .slot { padding: 2px; }
   .cell { font-size: 11px; padding: 4px; }
 }
