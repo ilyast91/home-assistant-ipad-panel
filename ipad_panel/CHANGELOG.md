@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Check container readiness within a few seconds, without waiting for HA data.
+- Support sign-in from legacy Safari with an opaque or missing Origin while keeping one-time form protection.
+- Accept all hostnames by default; allow an explicit hostname list.
+- Accept custom passwords from six characters, or generate and save a password on first start.
+
 ## 0.2.0
 
 - Publish HAOS port 8090 by default for new installs; existing installs may retain their previous Network override.

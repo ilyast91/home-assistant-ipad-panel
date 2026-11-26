@@ -96,10 +96,13 @@ class ControlsTests(unittest.TestCase):
                 self.assertEqual(anonymous.exception.code, 401)
                 self.assertEqual(calls, [])
                 client = build_opener(HTTPCookieProcessor(CookieJar()))
+                login_form = client.open(url).read().decode()
+                proof = re.search(r'name="csrf" value="([0-9a-f]+)"', login_form)[1]
                 with self.assertRaises(HTTPError) as wrong:
-                    post(client, url + "/login", {"password": "wrong"})
+                    post(client, url + "/login", {"password": "wrong", "csrf": proof})
                 self.assertEqual(wrong.exception.code, 401)
-                self.assertIn("Settings", post(client, url + "/login", {"password": PASSWORD}).read().decode())
+                proof = re.search(r'name="csrf" value="([0-9a-f]+)"', wrong.exception.read().decode())[1]
+                self.assertIn("Settings", post(client, url + "/login", {"password": PASSWORD, "csrf": proof}).read().decode())
                 page = client.open(url + "/settings?q=KITCHEN").read().decode()
                 self.assertIn("Kitchen lights", page)
                 self.assertNotIn("Kettle", page)

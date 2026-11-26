@@ -11,7 +11,7 @@ from string import Template
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
-from auth import Sessions
+from auth import MIN_PASSWORD, LoginForms, Sessions
 from selection import MAX_ENTITIES
 
 TEMPLATE = Template(Path(__file__).with_name("panel.html").read_text(encoding="utf-8"))
@@ -123,9 +123,9 @@ def settings_page(panel, csrf, query, notice):
     return page("Panel settings", body, navigation=navigation(csrf, True))
 
 
-def sign_in(message=""):
+def sign_in(csrf, message=""):
     error = f'<p role="alert" class="notice">{escape(message)}</p>' if message else ""
-    return page("Sign in", '<h1>Sign in</h1>' + error + '<form method="post" action="/login">'
+    return page("Sign in", '<h1>Sign in</h1>' + error + '<form method="post" action="/login">' + fields(csrf) +
                 '<label>Panel password <input type="password" name="password" maxlength="256" required></label> '
                 '<button type="submit">Sign in</button></form>')
 
@@ -138,12 +138,13 @@ def valid_host(header, names):
     try:
         ip_address(host.strip("[]"))
     except ValueError:
-        return host in names
+        return not names or host in names
     return True
 
 
 def handler(panel):
     auth = Sessions(panel.settings.password, panel.settings.secure_cookie)
+    login_forms = LoginForms(None, panel.settings.secure_cookie)
 
     class Handler(BaseHTTPRequestHandler):
         timeout = 10
@@ -173,13 +174,24 @@ def handler(panel):
             self.respond("Unrecognized Host; check allowed_hosts", 400, "text/plain")
             return False
 
-        def session(self):
+        def cookie_token(self, name):
             try:
-                cookie = SimpleCookie(self.headers.get("Cookie", "")).get(auth.name)
+                cookie = SimpleCookie(self.headers.get("Cookie", "")).get(name)
             except CookieError:
                 cookie = None
-            token = cookie.value if cookie else ""
+            return cookie.value if cookie else ""
+
+        def session(self):
+            token = self.cookie_token(auth.name)
             return token, auth.verify(token)
+
+        def show_sign_in(self, message="", code=200, **headers):
+            token = self.cookie_token(login_forms.name)
+            proof = login_forms.verify(token)
+            if proof is None:
+                token = login_forms.issue()
+                proof = login_forms.verify(token) or ""
+            self.respond(sign_in(proof, message), code, Set_Cookie=login_forms.cookie(token), **headers)
 
         def route(self):
             try:
@@ -204,11 +216,11 @@ def handler(panel):
                 self.respond(page("Set up iPad Panel", '<h1>Set up iPad Panel</h1>'
                                   '<p>Set <strong>panel_password</strong> in the HAOS App configuration, '
                                   'or <strong>PANEL_PASSWORD</strong> in the Compose .env file '
-                                  '(12 characters or more). Then restart the App or recreate the container.</p>'))
+                                  f'({MIN_PASSWORD} characters or more). Then restart the App or recreate the container.</p>'))
                 return
             _, csrf = self.session()
             if not csrf:
-                self.respond(sign_in())
+                self.show_sign_in()
                 return
             try:
                 query = parse_qs(target.query, keep_blank_values=True, max_num_fields=8)
@@ -234,7 +246,8 @@ def handler(panel):
                 return
             supplied_origin = self.headers.get("Origin")
             try:
-                if supplied_origin:
+                # Old browsers may omit Origin or send an opaque Origin. Form tokens protect both cases.
+                if supplied_origin and supplied_origin != "null":
                     origin = urlsplit(supplied_origin)
                     if origin.scheme not in {"http", "https"} or origin.netloc.lower() != self.headers["Host"].lower():
                         self.respond("Invalid origin", 403, "text/plain")
@@ -255,19 +268,22 @@ def handler(panel):
                 self.respond("Invalid form", 400, "text/plain")
                 return
             if path == "/login":
+                if login_forms.verify(self.cookie_token(login_forms.name), proof=data.get("csrf", "")) is None:
+                    self.show_sign_in("The sign-in form expired. Please try again.", 403)
+                    return
                 token, status = auth.login(data.get("password", ""), self.client_address[0])
                 if token:
                     old, _ = self.session()
                     auth.revoke(old)
                     self.redirect("/", Set_Cookie=auth.cookie(token))
                 elif status == 429:
-                    self.respond(sign_in("Too many attempts. Try again in a minute."), status, Retry_After="60")
+                    self.show_sign_in("Too many attempts. Try again in a minute.", status, Retry_After="60")
                 else:
-                    self.respond(sign_in("Wrong password."), status)
+                    self.show_sign_in("Wrong password.", status)
                 return
             token, csrf = self.session()
             if not csrf:
-                self.respond(sign_in("Sign in again to continue."), 401)
+                self.show_sign_in("Sign in again to continue.", 401)
                 return
             if not hmac.compare_digest(csrf.encode(), data.get("csrf", "").encode()):
                 self.respond("Invalid form token", 403, "text/plain")

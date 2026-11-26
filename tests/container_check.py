@@ -29,7 +29,7 @@ def get(path):
 
 
 def post(path, **fields):
-    with client.open(Request(root + path, data=urlencode(fields).encode()), timeout=5) as reply:
+    with client.open(Request(root + path, headers={"Origin": "null"}, data=urlencode(fields).encode()), timeout=5) as reply:
         return reply.read().decode()
 
 
@@ -37,9 +37,9 @@ def token(html):
     return re.search(r'name="csrf" value="([0-9a-f]+)"', html)[1]
 
 
-page = post("/login", password=password)
+page = post("/login", password=password, csrf=token(get("/")))
 assert password not in page and "smoke-token" not in page
-if mode == "demo":
+if mode in {"demo", "generated"}:
     assert "Demo" in get("/")
 else:
     entity = "light.fake_kitchen"

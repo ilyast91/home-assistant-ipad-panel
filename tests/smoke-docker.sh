@@ -17,17 +17,33 @@ cd "$work"
 cp "$root/compose.yaml" .
 cp "$root/panel.example.json" panel.json
 cp -R "$root/ipad_panel" .
-export PANEL_BIND_IP=127.0.0.1 PANEL_PORT=0 HA_URL= HA_TOKEN= PANEL_PASSWORD=smoke-panel-password
+export PANEL_BIND_IP=127.0.0.1 PANEL_PORT=0 HA_URL= HA_TOKEN= PANEL_PASSWORD=
 compose config -q
 compose up -d --build
 
 check_panel() {
     container=$1 mode=$2
     docker exec -i "$container" python - "$mode" "$PANEL_PASSWORD" < "$root/tests/container_check.py" || {
-        docker logs "$container"
+        docker logs "$container" 2>&1 | grep -v 'Generated panel password:'
         return 1
     }
 }
+container=$(compose ps -q ipad-panel)
+for _ in $(seq 1 12); do
+    generated=$(docker logs "$container" 2>&1 | awk '/^Generated panel password:/ {print $NF}')
+    health=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+    if [ -n "$generated" ] && [ "$health" = healthy ]; then break; fi
+    sleep 1
+done
+test "${#generated}" -eq 24
+test "$health" = healthy
+PANEL_PASSWORD=$generated check_panel "$container" generated
+compose up -d --force-recreate
+container=$(compose ps -q ipad-panel)
+PANEL_PASSWORD=$generated check_panel "$container" generated
+if docker logs "$container" 2>&1 | grep -q 'Generated panel password:'; then exit 1; fi
+export PANEL_PASSWORD=ab1234
+compose up -d --force-recreate
 check_panel "$(compose ps -q ipad-panel)" demo
 
 docker run -d --name "$project-supervisor" --network "${project}_default" --network-alias supervisor \
@@ -77,7 +93,7 @@ docker run -d --name "$project-haos" --network "${project}_default" \
     -e SUPERVISOR_TOKEN=smoke-token --entrypoint sh "$image" -c '
         mkdir -p /data
         umask 077
-        printf "%s\n" "{\"demo\":false,\"panel_password\":\"smoke-panel-password\"}" > /data/options.json
+        printf "%s\n" "{\"demo\":false,\"panel_password\":\"ab1234\"}" > /data/options.json
         exec python /app/panel.py
     ' >/dev/null
 check_panel "$project-haos" haos

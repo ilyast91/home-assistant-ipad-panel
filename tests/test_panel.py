@@ -146,7 +146,7 @@ class PanelTests(unittest.TestCase):
             self.assertIn(f"&lt;{item}&gt;", unsafe)
 
     def test_http_exposes_only_panel_and_health(self):
-        panel = Panel(demo())
+        panel = Panel(demo(allowed_hosts=["homeassistant.local"]))
         with serve(handler(panel)) as url:
             with urlopen(url + "/") as response:
                 self.assertIn(b"Set up iPad Panel", response.read())

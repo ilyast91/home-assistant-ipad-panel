@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from auth import MIN_PASSWORD, choose_password
 from selection import Entity, Selection, parse_entities
 from web import UPSTREAM_ERRORS, handler, render  # Re-exported for tests.
 
@@ -59,15 +60,15 @@ class Settings:
         secure_cookie = options.get("secure_cookie", False)
         if type(secure_cookie) is not bool:
             raise ValueError("secure_cookie must be true or false")
-        if not isinstance(password, str) or (password and not 12 <= len(password) <= 256):
-            raise ValueError("panel password must be 12–256 characters")
+        if not isinstance(password, str) or (password and not MIN_PASSWORD <= len(password) <= 256):
+            raise ValueError(f"panel password must be {MIN_PASSWORD}–256 characters")
 
-        names = options.get("allowed_hosts", ["homeassistant.local"])
+        names = options.get("allowed_hosts", [])
         if not isinstance(names, list) or not all(isinstance(name, str) and re.fullmatch(
             r"[a-zA-Z0-9][a-zA-Z0-9.-]*", name
         ) for name in names):
             raise ValueError("allowed_hosts must contain hostnames without schemes, ports or wildcards")
-        allowed_hosts = ("localhost", *(name.lower().rstrip(".") for name in names))
+        allowed_hosts = ("localhost", *(name.lower().rstrip(".") for name in names)) if names else ()
         if not demo:
             if not api_url or not token:
                 raise ValueError("live mode requires an HA API URL and token")
@@ -203,15 +204,19 @@ def main():
             os.setgid(10001)
             os.setuid(10001)
         selection = Selection(settings.entities, state / "selection.json" if state is not None else None)
+        password, generated = choose_password(settings.password, state / "password" if state is not None else None)
+        settings = replace(settings, password=password)
     except json.JSONDecodeError:
         raise SystemExit("Invalid JSON in panel configuration or saved selection") from None
     except (OSError, ValueError) as error:
         raise SystemExit(f"Panel configuration error: {error}") from None
+    if generated:
+        print(f"Generated panel password: {password}", flush=True)
     panel = Panel(settings, selection)
     stop = Event()
     with ThreadingHTTPServer(("0.0.0.0", 8090), handler(panel)) as server:
         Thread(target=panel.run, args=(stop,), daemon=True).start()
-        print("iPad Panel listening on port 8090", flush=True)
+        print("iPad Panel ready: HTTP port 8090", flush=True)
         try:
             server.serve_forever()
         finally:

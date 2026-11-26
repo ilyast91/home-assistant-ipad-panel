@@ -1,10 +1,35 @@
 import hashlib
 import hmac
+import os
 import re
 import secrets
+import tempfile
 import time
 from collections import OrderedDict
 from threading import Lock
+
+MIN_PASSWORD = 6
+
+
+def choose_password(configured, path):
+    if configured:
+        return configured, False
+    if path is not None and path.is_file():
+        password = path.read_text(encoding="utf-8").strip()
+        if not re.fullmatch(r"[0-9a-f]{24}", password):
+            raise ValueError("saved generated password is invalid; configure your own password")
+        return password, False
+    password = secrets.token_hex(12)
+    if path is not None:
+        fd, temporary = tempfile.mkstemp(prefix=".password-", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(password + "\n")
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+    return password, True
 
 
 class Sessions:
@@ -48,16 +73,20 @@ class Sessions:
                 self.tokens.popitem(last=False)
         return token
 
-    def verify(self, token, now=None):
+    def verify(self, token, now=None, proof=None):
         if not re.fullmatch(r"[0-9a-f]{64}", token):
             return None
         now = time.monotonic() if now is None else now
         with self.lock:
             session = self.tokens.get(token)
-            if session and now < session[0]:
-                return session[1]
-            self.tokens.pop(token, None)
-        return None
+            if not session or now >= session[0]:
+                self.tokens.pop(token, None)
+                return None
+            if proof is not None:
+                if not hmac.compare_digest(session[1].encode(), proof.encode()):
+                    return None
+                self.tokens.pop(token)
+            return session[1]
 
     def revoke(self, token):
         with self.lock:
@@ -67,3 +96,8 @@ class Sessions:
         age = self.max_age if token else 0
         secure = "; Secure" if self.secure else ""
         return f"{self.name}={token}; Path=/; Max-Age={age}; HttpOnly; SameSite=Lax{secure}"
+
+
+class LoginForms(Sessions):
+    max_age = 10 * 60
+    name = "ipad_panel_login"
