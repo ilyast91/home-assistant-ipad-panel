@@ -1,0 +1,8 @@
+{
+  "demo": true,
+  "title": "Home Panel",
+  "timezone": "UTC",
+  "refresh_seconds": 15,
+  "allowed_hosts": ["homeassistant.local"],
+  "entities": []
+}

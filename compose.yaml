@@ -1,0 +1,21 @@
+services:
+  ipad-panel:
+    build: ./ipad_panel
+    init: true
+    user: "10001:10001"
+    environment:
+      HA_URL: ${HA_URL:-}
+      HA_TOKEN: ${HA_TOKEN:-}
+    ports:
+      - "${PANEL_BIND_IP:-127.0.0.1}:${PANEL_PORT:-8090}:8090"
+    volumes:
+      - type: bind
+        source: ./panel.json
+        target: /config/panel.json
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
