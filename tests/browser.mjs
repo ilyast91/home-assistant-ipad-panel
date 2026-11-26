@@ -107,10 +107,19 @@ try {
   await js(`var type = document.querySelector('#device-search select'); type.value = 'all'; type.dispatchEvent(new Event('change'));`);
   await wait('document.querySelector("#results button") && /Outdoor temperature/.test(document.querySelector("#results").textContent)');
   await js('document.querySelector("#results button").click(); document.getElementById("add-widget").click()');
+  await js(`var type = document.querySelector('#device-search select'); type.value = 'climate';
+    document.querySelector('#device-search input').value = ''; document.querySelector('#device-search button').click()`);
+  await wait('document.querySelector("#results button") && /Hall thermostat/.test(document.querySelector("#results").textContent)');
+  await js('document.querySelector("#results button").click(); document.getElementById("add-widget").click()');
   await js('document.getElementById("save-layout").click()');
   await wait(`document.querySelector('#dashboard [data-id="sensor.demo_outside"]')`);
   assert.equal(await js('document.documentElement.getAttribute("data-theme")'), 'light');
   assert.equal(await js('document.getElementById("timezone-label").textContent'), 'Europe/Moscow');
+  await wait(`document.querySelector('.climate [data-target="temperature"] button[data-direction="up"]:not(:disabled)')`);
+  await js(`document.querySelector('.climate [data-target="temperature"] button[data-direction="up"]').click()`);
+  await wait(`document.querySelector('.climate [data-target="temperature"] strong').textContent === '22.5 °C'`);
+  await js(`document.querySelector('.climate-modes select').value = 'cool'; document.querySelector('.climate-modes button').click()`);
+  await wait(`document.querySelector('.climate-mode').textContent === 'Cooling'`);
   assert.equal(await js(`document.querySelector('[data-id="sensor.demo_temperature"]').classList.contains('w2')`), true);
   await command('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 1, mobile: true });
   assert.equal(await js('document.documentElement.scrollWidth <= window.innerWidth'), true);
@@ -136,7 +145,8 @@ try {
   await wait('document.querySelector(".feedback.error")');
   assert.equal(await js('Array.prototype.every.call(document.querySelectorAll(".control"), function (button) { return button.disabled; })'), true);
   assert.equal(await js('document.getElementById("clock-sync").textContent'), 'Clock not synchronized');
-  console.log('Browser smoke passed: controls (including outage), clock, weather, themes, grid, focus, draft protection, catalogue and time zone.');
+  assert.equal(await js('Array.prototype.every.call(document.querySelectorAll(".climate button, .climate select"), function (input) { return input.disabled; })'), true);
+  console.log('Browser smoke passed: light and climate controls (including outage), clock, weather, themes, grid, focus, draft protection, catalogue and time zone.');
 } finally {
   if (socket) { socket.close(); }
   chrome.kill();

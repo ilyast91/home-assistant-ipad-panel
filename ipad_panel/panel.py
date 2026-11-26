@@ -13,6 +13,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 from zoneinfo import ZoneInfo
 
 from auth import MIN_PASSWORD, choose_password
+from climate import command as climate_command, confirmed as climate_confirmed, describe as describe_climate
 from selection import ENTITY_ID, Entity, Selection, checked_zone, parse_entities
 from web import UPSTREAM_ERRORS, handler, render  # Re-exported for tests.
 
@@ -105,6 +106,7 @@ class Snapshot:
     stale: bool = False
     entities: tuple[Entity, ...] = ()
     weather: dict | None = None
+    climates: dict = field(default_factory=dict)
 
 
 class Panel:
@@ -119,6 +121,10 @@ class Panel:
         self.demo_states = {entity.id: value for entity, value in DEMO}
         self.demo_states.update({"sensor.demo_outside": ("4", "°C"),
                                  "weather.demo": (DEMO_WEATHER["value"], DEMO_WEATHER["unit"])})
+        self.demo_climate = {"state": "heat", "attributes": {"current_temperature": 20.5, "temperature": 22,
+                             "temperature_unit": "°C", "min_temp": 16, "max_temp": 30, "target_temp_step": .5,
+                             "supported_features": 1, "hvac_modes": ["off", "heat", "cool", "auto"]}}
+        self.temperature_unit = ""
         self.next_timezone_check = 0
         self.next_weather_scan = 0
         self.auto_weather_id = ""
@@ -147,14 +153,19 @@ class Panel:
             return ZoneInfo(cached), f"{cached} (Home Assistant)"
         return ZoneInfo("UTC"), "UTC (demo)" if self.settings.demo else "UTC (until Home Assistant responds)"
 
-    def sync_timezone(self):
-        if self.settings.demo or self.timezone_mode != "auto" or monotonic() < self.next_timezone_check:
+    def sync_ha_config(self):
+        live_climate = any(entity.id.startswith("climate.") for entity in self.entities)
+        if self.settings.demo or (self.timezone_mode != "auto" and not live_climate) or monotonic() < self.next_timezone_check:
             return
         self.next_timezone_check = monotonic() + 60
         try:
             config = self.request("/config")
             if isinstance(config, dict):
-                self.selection.cache_timezone(config.get("time_zone"))
+                units = config.get("unit_system")
+                if isinstance(units, dict) and units.get("temperature") in ("°C", "°F", "K"):
+                    self.temperature_unit = units["temperature"]
+                if self.timezone_mode == "auto" and config.get("time_zone"):
+                    self.selection.cache_timezone(config["time_zone"])
         except UPSTREAM_ERRORS as error:
             if isinstance(error, HTTPError):
                 error.close()
@@ -196,7 +207,7 @@ class Panel:
     def catalogue(self):
         if self.settings.demo:
             return {**{entity.id: entity.label for entity, _ in DEMO}, "weather.demo": "Demo weather",
-                    "sensor.demo_outside": "Outdoor temperature"}
+                    "sensor.demo_outside": "Outdoor temperature", "climate.demo_hall": "Hall thermostat"}
         states = self.all_states()
         entities = {}
         for item in states:
@@ -265,6 +276,54 @@ class Panel:
                 self.revision += 1
             self.changed.set()
 
+    def confirm_climate(self, entity_id, action, value):
+        if not entity_id.startswith("climate."):
+            return False
+        with self.lock:
+            snapshot = self.snapshot
+            state = snapshot.climates.get(entity_id)
+            if (entity_id not in {entity.id for entity in self.entities} or snapshot.stale or not snapshot.updated_at or
+                    (datetime.now(timezone.utc) - snapshot.updated_at).total_seconds() > self.settings.refresh_seconds * 2 + 5):
+                return False
+            requested = climate_command(state, action, value)
+            if requested is None:
+                return False
+            if entity_id in self.pending:
+                raise TimeoutError("This widget already has a command in progress.")
+            self.pending.add(entity_id)
+            self.revision += 1
+        service, payload = requested
+        try:
+            if self.settings.demo:
+                if entity_id != "climate.demo_hall":
+                    return False
+                if service == "set_hvac_mode":
+                    self.demo_climate["state"] = payload["hvac_mode"]
+                else:
+                    self.demo_climate["attributes"].update(payload)
+                confirmed = describe_climate(self.demo_climate, self.temperature_unit)
+            else:
+                with self.selection.lock:
+                    if not any(entity.id == entity_id for entity in self.selection.entities):
+                        return False
+                    self.request(f"/services/climate/{service}", {"entity_id": entity_id, **payload})
+                for delay in CONTROL_WAIT:
+                    if delay:
+                        sleep(delay)
+                    confirmed = describe_climate(self.read_state(entity_id), self.temperature_unit)
+                    if climate_confirmed(confirmed, payload):
+                        break
+                else:
+                    raise TimeoutError("Home Assistant did not confirm the climate command.")
+            with self.lock:
+                self.snapshot = replace(self.snapshot, climates={**self.snapshot.climates, entity_id: confirmed})
+            return True
+        finally:
+            with self.lock:
+                self.pending.remove(entity_id)
+                self.revision += 1
+            self.changed.set()
+
     def read_weather(self, entity_id):
         if self.settings.demo:
             return DEMO_WEATHER if entity_id else None
@@ -323,8 +382,14 @@ class Panel:
                 return
             revision = self.revision
         try:
-            values = (tuple(self.demo_states.get(entity.id, ("—", "")) for entity in entities) if self.settings.demo
-                      else tuple(self.get_state(entity) for entity in entities))
+            climate_states = {}
+            values = []
+            for entity in entities:
+                if entity.id.startswith("climate."):
+                    climate_states[entity.id] = self.demo_climate if self.settings.demo else self.read_state(entity.id)
+                    values.append((climate_states[entity.id]["state"], ""))
+                else:
+                    values.append(self.demo_states.get(entity.id, ("—", "")) if self.settings.demo else self.get_state(entity))
             try:
                 weather = self.read_weather(self.weather_source)
             except UPSTREAM_ERRORS as error:
@@ -335,7 +400,8 @@ class Panel:
                            if previous else None)
                 if not entities:
                     raise
-            self.sync_timezone()
+            self.sync_ha_config()
+            climates = {entity_id: describe_climate(data, self.temperature_unit) for entity_id, data in climate_states.items()}
         except UPSTREAM_ERRORS as error:
             if isinstance(error, HTTPError):
                 error.close()
@@ -345,7 +411,7 @@ class Panel:
         else:
             with self.lock:
                 if revision == self.revision:
-                    self.snapshot = Snapshot(values, datetime.now(timezone.utc), entities=entities, weather=weather)
+                    self.snapshot = Snapshot(tuple(values), datetime.now(timezone.utc), entities=entities, weather=weather, climates=climates)
 
     def run(self, stop):
         while not stop.is_set():

@@ -234,7 +234,7 @@ def handler(panel):
                 return
             path = target.path
             if path not in {"/login", "/logout", "/settings/add", "/settings/rename", "/settings/remove", "/control",
-                            "/layout", "/theme", "/timezone"}:
+                            "/layout", "/theme", "/timezone", "/climate"}:
                 self.respond("Not found", 404, "text/plain")
                 return
             if not auth.password:
@@ -311,10 +311,13 @@ def handler(panel):
                     self.json_response({"theme": panel.selection.theme})
                 return
             entity_id, label = data.get("id", ""), data.get("label", "").strip()
-            if path == "/control":
+            if path in {"/control", "/climate"}:
                 ajax = self.headers.get("Accept") == "application/json"
                 try:
-                    sent = panel.confirm_control(entity_id, data.get("action", ""))
+                    if path == "/climate":
+                        sent = panel.confirm_climate(entity_id, data.get("action", ""), data.get("value", ""))
+                    else:
+                        sent = panel.confirm_control(entity_id, data.get("action", ""))
                 except UPSTREAM_ERRORS as error:
                     if isinstance(error, HTTPError):
                         error.close()

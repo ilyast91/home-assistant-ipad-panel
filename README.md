@@ -1,6 +1,6 @@
 # Home Assistant iPad Panel
 
-A password-protected wall dashboard for Home Assistant, designed for an iPad 2 on iOS 9. It shows a clock, optional weather, and a customizable widget grid. Tap the whole light or switch tile to toggle it. The server renders plain HTML and CSS, with small ES5 scripts for live updates and the visual editor. No Lovelace, HACS, or native app required.
+A password-protected wall dashboard for Home Assistant, designed for an iPad 2 on iOS 9. It shows a clock, optional weather, and a customizable widget grid. Tap the whole light or switch tile to toggle it, or use climate widgets to adjust a thermostat. The server renders plain HTML and CSS, with small ES5 scripts for live updates and the visual editor. No Lovelace, HACS, or native app required.
 
 > The two launch paths are tested against a simulated Home Assistant. A physical iPad 2 and a real HAOS installation still need testing.
 
@@ -34,6 +34,7 @@ cp panel.example.json panel.json
 - Select a tile to rename or resize it (**1 × 1** or **2 × 1**). Drag its **Move** handle by touch (the page scrolls near the edges), or tap **Move**, scroll if necessary, and tap a free cell. You can also use the arrow buttons. Use **Save layout** to apply changes or **Discard draft** to discard them. The **Dashboard** link asks before leaving an unsaved layout. Existing tiles migrate automatically.
 - In **Settings**, choose **Light** or **Dark**; theme changes save immediately. Under **Weather next to the clock**, the default **Automatic — Home Assistant** detects a `weather.*` entity and shows current temperature and conditions. You can choose another entity or hide the card. Weather changes save with the layout.
 - Tap anywhere on a `light.*` or `switch.*` tile. The tile keeps its last confirmed state until HA reports the change; pending or failed requests appear below the tile. Unavailable or stale controls cannot be pressed. Demo controls only simulate changes.
+- To control a thermostat or AC, add a `climate.*` entity with the **Climate** filter. Use **− / +** to adjust the target (or each endpoint in Heat / cool mode), or pick a device-supported mode and select **Apply**. The controls follow HA capabilities and temperature limits. Use a **2 × 1** tile for more space. Fan speed, swing and presets are not included.
 - Under **Settings → Time zone**, use the Home Assistant time zone or search for a city/region and select a manual zone. This applies to the clock and the last update time; downtime does not erase the last detected zone. Existing deployment time zones are preserved until you override them here.
 - If JavaScript is disabled, the dashboard still refreshes and can submit control forms; the visual editor links to basic device settings. Use **Share → Add to Home Screen** in Safari if desired. The last successful update is shown with its date and time; it stays unchanged during a connection outage. With JavaScript enabled, the clock keeps ticking independently and is marked unsynchronized when the panel server cannot be reached.
 

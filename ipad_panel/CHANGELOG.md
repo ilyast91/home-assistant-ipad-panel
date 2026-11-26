@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Add climate widgets with current and target temperatures, thermostat modes, and confirmed temperature changes.
+- Show supported controls only; enforce device limits and support heating/cooling target ranges.
+
 ## 0.3.1
 
 - Use the Home Assistant time zone by default on new installations, with a searchable manual override in Settings. Keep the last detected zone across restarts.

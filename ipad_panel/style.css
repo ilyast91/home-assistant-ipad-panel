@@ -47,6 +47,18 @@ nav form, .entry form { display: inline-block; }
 .tile-value { display: inline-block; font-size: 31px; letter-spacing: -.035em; line-height: 1.2; margin: 9px 5px 5px 0; }
 .tile-unit { color: #bbccbf; font-size: 14px; }
 .tile.control { padding-top: 10px; }
+.climate { padding: 12px; }
+.climate-reading { margin: 8px 0 2px; font-size: 22px; }
+.climate-caption { display: block; font-size: 13px; }
+.climate-current { font-size: 25px; }
+.climate-mode { margin: 2px 0 10px; font-size: 14px; font-weight: bold; }
+.climate-target { display: inline-block; margin: 0 12px 8px 0; vertical-align: top; }
+.climate-target[hidden], .climate-form[hidden] { display: none; }
+.climate-stepper form { display: inline-block; margin: 4px 4px 0 0; }
+.climate-stepper button { min-width: 44px; padding: 5px; font-size: 20px; }
+.climate-modes label { margin: 4px 0; }
+.climate-modes select { min-width: 0; }
+.climate-modes button { margin-top: 3px; }
 .control:active { outline: 2px solid #d8ed8b; outline-offset: -3px; }
 .control .tile-label { padding-right: 19px; }
 .control.is-on { background: #2d3a24; border-color: #859756; }
@@ -114,6 +126,7 @@ summary { min-height: 44px; padding: 10px 4px; font-weight: bold; }
   .tile { padding: 8px; }
   .glyph { width: 24px; height: 24px; padding: 4px; }
   .tile-value { font-size: 25px; }
+  .climate-stepper form { margin-right: 2px; }
   .board .slot { padding: 2px; }
   .cell { font-size: 11px; padding: 4px; }
 }

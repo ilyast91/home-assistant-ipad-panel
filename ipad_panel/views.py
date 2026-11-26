@@ -5,6 +5,7 @@ from pathlib import Path
 from string import Template
 from zoneinfo import ZoneInfo
 
+from climate import TARGETS
 from selection import CELLS, MAX_ENTITIES
 
 TEMPLATE = Template(Path(__file__).with_name('panel.html').read_text(encoding='utf-8'))
@@ -55,6 +56,7 @@ def dashboard_data(settings, snapshot, now, weather_id, zone=None, zone_label=No
         weather = {'id': weather_id, 'condition': 'Unavailable', 'value': '—', 'unit': ''}
     return {
         'values': {e.id: value for e, value in zip(snapshot.entities, snapshot.values)},
+        'climates': snapshot.climates,
         'clock': local.strftime('%H:%M'), 'date': local.strftime('%A, %d %B'),
         'clockEpoch': int(local.replace(tzinfo=ZoneInfo('UTC')).timestamp() * 1000),
         'updated': updated.astimezone(zone).strftime('%Y-%m-%d %H:%M:%S') if updated else '—',
@@ -66,6 +68,50 @@ def dashboard_data(settings, snapshot, now, weather_id, zone=None, zone_label=No
     }
 
 
+def climate_tile(entity, state, stale, csrf, heading):
+    state = state or {}
+    active = state.get('available') and not stale
+    label = escape(entity.label)
+    unit = state.get('unit', '')
+    current = state.get('current')
+    current_text = '—' if current is None else f'{current:g} {escape(unit)}'.strip()
+    targets = {target['key']: target for target in state.get('targets', [])}
+    contents = (f'{heading}<p class="climate-reading"><span class="climate-caption">Current</span> '
+                f'<strong class="climate-current">{current_text}</strong></p>'
+                f'<p class="climate-mode">{escape(state.get("modeLabel", "Waiting for data"))}</p>')
+    for key, name in TARGETS.items():
+        target = targets.get(key)
+        value = f'{target["value"]:g} {escape(unit)}'.strip() if target else '—'
+        contents += (f'<div class="climate-target" data-target="{key}"' + ('' if target else ' hidden') + '>'
+                     f'<span class="climate-caption">{name}</span> <strong>{value}</strong>')
+        if csrf:
+            contents += '<div class="climate-stepper">'
+            for direction, symbol, verb in [('down', '−', 'Decrease'), ('up', '+', 'Increase')]:
+                allowed = bool(active and target and target[direction])
+                available = 'yes' if allowed else 'no'
+                contents += (f'<form class="climate-form" method="post" action="/climate">{fields(csrf, entity.id)}'
+                             f'<input type="hidden" name="action" value="{key}_{direction}">'
+                             f'<button type="submit" data-direction="{direction}" data-available="{available}" '
+                             f'aria-label="{verb} {label} {name.lower()}" {"" if allowed else "disabled"}>{symbol}</button></form>')
+            contents += '</div>'
+        contents += '</div>'
+    if csrf:
+        modes = state.get('modes', [])
+        mode_enabled = bool(active and modes)
+        disabled = '' if mode_enabled else ' disabled'
+        signature = escape(','.join(mode['id'] for mode in modes))
+        options = '<option value="">Choose a mode</option>'
+        for mode in modes:
+            options += f'<option value="{mode["id"]}">{escape(mode["label"])}</option>'
+        hidden = '' if modes else ' hidden'
+        contents += (f'<form class="climate-form climate-modes" method="post" action="/climate"{hidden}>'
+                     f'{fields(csrf, entity.id)}<input type="hidden" name="action" value="mode">'
+                     f'<label>Mode<select name="value" required data-modes="{signature}"{disabled}>{options}</select></label>'
+                     f'<button type="submit" data-available="{"yes" if mode_enabled else "no"}"{disabled}>Apply</button></form>'
+                     '<span class="feedback" role="status"></span>')
+    return f'<div class="tile climate">{contents}</div>'
+
+
 def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', weather_id=None, status=None):
     status = status or dashboard_data(settings, snapshot, now, ('weather.demo' if settings.demo else '') if weather_id is None else weather_id)
     rows = {}
@@ -74,9 +120,11 @@ def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', 
         domain = entity.id.partition('.')[0]
         controlled = domain in CONTROL_DOMAINS
         label = escape(entity.label)
-        kind = 'temperature' if domain == 'sensor' and unit in {'°C', '°F'} else domain
+        kind = 'temperature' if domain == 'climate' or (domain == 'sensor' and unit in {'°C', '°F'}) else domain
         label_html = f'<span class="tile-label">{glyph(kind)} {label}</span>'
-        if controlled and csrf:
+        if domain == 'climate':
+            inner = climate_tile(entity, status['climates'].get(entity.id), status['stale'], csrf, label_html)
+        elif controlled and csrf:
             available = value in {'on', 'off'} and not status['stale']
             state = {'on': 'On', 'off': 'Off'}.get(value, 'Unavailable')
             inner = (f'<form method="post" action="/control" class="control-form">{fields(csrf, entity.id)}'
@@ -147,7 +195,7 @@ def editor_page(panel, csrf):
             '<details open id="library"><summary>Add a widget</summary><div class="catalogue">'
             '<form id="device-search" class="search"><label>Find by name or entity ID<input name="q" maxlength="100" placeholder="Living room, sensor…"></label>'
             '<label>Type<select name="type"><option value="all">All</option><option value="light">Lights</option>'
-            '<option value="switch">Switches</option><option value="sensor">Sensors</option><option value="weather">Weather</option></select></label>'
+            '<option value="switch">Switches</option><option value="climate">Climate</option><option value="sensor">Sensors</option><option value="weather">Weather</option></select></label>'
             '<button type="submit">Search</button></form><div class="editor-columns"><section><p id="search-note" role="status" class="hint" tabindex="-1"></p>'
             '<ul id="results" class="results"></ul><div id="pages" class="toolbar"></div></section>'
             '<section class="inspector"><h2>Preview</h2><div id="preview" class="tile"><span class="hint">Choose a result to preview it.</span></div>'

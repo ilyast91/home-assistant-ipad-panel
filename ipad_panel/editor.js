@@ -178,7 +178,7 @@
     var existing = find(item.id), widget = get('preview'), heading = document.createElement('strong');
     var domain = item.id.split('.')[0], detail = document.createElement('p');
     heading.className = 'tile-label'; heading.textContent = item.label;
-    detail.className = 'tile-value'; detail.textContent = (domain === 'light' || domain === 'switch') ? 'On / Off' : (domain === 'weather' ? 'Weather' : 'Sensor reading');
+    detail.className = 'tile-value'; detail.textContent = (domain === 'light' || domain === 'switch') ? 'On / Off' : (domain === 'climate' ? 'Temperature / mode' : (domain === 'weather' ? 'Weather' : 'Sensor reading'));
     widget.textContent = ''; widget.appendChild(heading); widget.appendChild(detail);
     if (!keepLabel) { get('add-label').value = existing ? existing.label : item.label; }
     add.disabled = !!existing || tiles.length >= model.limit;
