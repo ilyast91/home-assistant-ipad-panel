@@ -5,7 +5,8 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
+from time import sleep
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -16,10 +17,16 @@ from selection import Entity, Selection, parse_entities
 from web import UPSTREAM_ERRORS, handler, render  # Re-exported for tests.
 
 DEMO = [
-    (Entity("sensor.demo_temperature", "Living room"), ("22.4", "°C")),
-    (Entity("sensor.demo_humidity", "Humidity"), ("46", "%")),
-    (Entity("binary_sensor.demo_door", "Front door"), ("Closed", "")),
+    (Entity("sensor.demo_temperature", "Living room", 0), ("22.4", "°C")),
+    (Entity("sensor.demo_humidity", "Humidity", 1), ("46", "%")),
+    (Entity("light.demo_living", "Living room light", 2, 2), ("on", "")),
+    (Entity("binary_sensor.demo_door", "Front door", 4), ("Closed", "")),
+    (Entity("switch.demo_socket", "Reading lamp socket", 6, 2), ("off", "")),
 ]
+DEMO_WEATHER = {"id": "weather.demo", "condition": "Sunny", "value": "4", "unit": "°C"}
+CONTROL_WAIT = (0, .25, .5, 1)
+WEATHER_LABELS = {"partlycloudy": "Partly cloudy", "clear-night": "Clear night", "snowy-rainy": "Sleet",
+                  "lightning-rainy": "Thunderstorms", "windy-variant": "Windy"}
 
 
 @dataclass(frozen=True)
@@ -102,6 +109,7 @@ class Snapshot:
     updated_at: datetime | None = None
     stale: bool = False
     entities: tuple[Entity, ...] = ()
+    weather: dict | None = None
 
 
 class Panel:
@@ -110,10 +118,21 @@ class Panel:
         self.selection = selection if selection is not None else Selection(settings.entities)
         self.snapshot = Snapshot(())
         self.changed = Event()
+        self.lock = Lock()
+        self.pending = set()
+        self.revision = 0
+        self.demo_states = dict((entity.id, value) for entity, value in DEMO)
 
     @property
     def entities(self):
-        return tuple(entity for entity, _ in DEMO) if self.settings.demo else self.selection.entities
+        if self.settings.demo:
+            widgets = self.selection.layout.demo_entities
+            return tuple(entity for entity, _ in DEMO) if widgets is None else widgets
+        return self.selection.entities
+
+    @property
+    def weather_source(self):
+        return self.selection.layout.demo_weather if self.settings.demo else self.selection.weather
 
     def request(self, endpoint, payload=None, max_size=262144):
         headers = {"Authorization": f"Bearer {self.settings.token}", "Accept": "application/json"}
@@ -128,22 +147,29 @@ class Panel:
             raise ValueError("HA response exceeds size limit")
         return json.loads(data)
 
-    def get_state(self, entity):
+    def read_state(self, entity_id):
         try:
-            data = self.request(f"/states/{entity.id}")
+            data = self.request(f"/states/{entity_id}")
         except HTTPError as error:
             error.close()
             if error.code == 404:
-                return "unavailable", ""
+                return {"state": "unavailable"}
             raise
         if not isinstance(data, dict) or not isinstance(data.get("state"), str):
             raise ValueError("invalid HA state")
+        return data
+
+    def get_state(self, entity):
+        data = self.read_state(entity.id)
         attributes = data.get("attributes")
         unit = attributes.get("unit_of_measurement") if isinstance(attributes, dict) else None
         state = data["state"]
         return state, unit if isinstance(unit, str) and state not in {"unknown", "unavailable"} else ""
 
     def catalogue(self):
+        if self.settings.demo:
+            return {**{entity.id: entity.label for entity, _ in DEMO}, "weather.demo": "Demo weather",
+                    "sensor.demo_outside": "Outdoor temperature"}
         states = self.request("/states", max_size=16 * 1024 * 1024)
         if not isinstance(states, list):
             raise ValueError("invalid HA catalogue")
@@ -168,17 +194,88 @@ class Panel:
         self.changed.set()
         return True
 
+    def confirm_control(self, entity_id, action):
+        if action not in {"turn_on", "turn_off"} or entity_id.partition(".")[0] not in {"light", "switch"}:
+            return False
+        with self.lock:
+            states = {entity.id: value[0] for entity, value in zip(self.snapshot.entities, self.snapshot.values)}
+            if (entity_id not in {entity.id for entity in self.entities} or states.get(entity_id) not in {"on", "off"} or
+                    self.snapshot.stale or not self.snapshot.updated_at or
+                    (datetime.now(timezone.utc) - self.snapshot.updated_at).total_seconds() > self.settings.refresh_seconds * 2 + 5):
+                return False
+            if entity_id in self.pending:
+                raise TimeoutError("This widget already has a command in progress.")
+            self.pending.add(entity_id)
+            self.revision += 1
+        try:
+            target = action.removeprefix("turn_")
+            if self.settings.demo:
+                self.demo_states[entity_id] = (target, "")
+                value = self.demo_states[entity_id]
+            else:
+                if not self.control(entity_id, action):
+                    return False
+                for delay in CONTROL_WAIT:
+                    if delay:
+                        sleep(delay)
+                    value = self.get_state(Entity(entity_id, entity_id))
+                    if value[0] == target:
+                        break
+                else:
+                    raise TimeoutError("Home Assistant did not confirm the new state.")
+            with self.lock:
+                self.snapshot = replace(self.snapshot, values=tuple(
+                    value if entity.id == entity_id else previous
+                    for entity, previous in zip(self.snapshot.entities, self.snapshot.values)))
+            return True
+        finally:
+            with self.lock:
+                self.pending.remove(entity_id)
+                self.revision += 1
+            self.changed.set()
+
+    def read_weather(self, entity_id):
+        if self.settings.demo:
+            return DEMO_WEATHER if entity_id else None
+        if not entity_id:
+            return None
+        data = self.read_state(entity_id)
+        attributes = data.get("attributes")
+        attrs = attributes if isinstance(attributes, dict) else {}
+        state = data["state"]
+        value = attrs.get("temperature")
+        unit = attrs.get("temperature_unit")
+        available = state not in {"unknown", "unavailable"}
+        return {"id": entity_id, "condition": WEATHER_LABELS.get(state, state.replace("-", " ").capitalize()),
+                "value": str(value) if available and type(value) in (float, int) else "—",
+                "unit": unit if available and type(value) in (float, int) and isinstance(unit, str) else ""}
+
+    def dashboard(self, now):
+        from views import dashboard_data
+        snapshot = self.snapshot
+        return dashboard_data(self.settings, snapshot, now, self.weather_source)
+
     def poll(self):
         entities = self.entities
+        with self.lock:
+            if self.pending:
+                return
+            revision = self.revision
         try:
-            values = (tuple(value for _, value in DEMO) if self.settings.demo
+            values = (tuple(self.demo_states.get(entity.id, ("4", "°C") if entity.id == "sensor.demo_outside" else ("—", ""))
+                            for entity in entities) if self.settings.demo
                       else tuple(self.get_state(entity) for entity in entities))
+            weather = self.read_weather(self.weather_source)
         except UPSTREAM_ERRORS as error:
             if isinstance(error, HTTPError):
                 error.close()
-            self.snapshot = replace(self.snapshot, stale=True)
+            with self.lock:
+                if revision == self.revision:
+                    self.snapshot = replace(self.snapshot, stale=True)
         else:
-            self.snapshot = Snapshot(values, datetime.now(timezone.utc), entities=entities)
+            with self.lock:
+                if revision == self.revision:
+                    self.snapshot = Snapshot(values, datetime.now(timezone.utc), entities=entities, weather=weather)
 
     def run(self, stop):
         while not stop.is_set():

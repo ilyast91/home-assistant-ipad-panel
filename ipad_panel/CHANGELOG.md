@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Redesigned dashboard with light/dark themes, full-tile controls, weather, and a visible last-success timestamp.
+- On-device four-column editor with touch handles, keyboard alternatives, and two tile sizes.
+- Searchable widget catalogue with type filters, preview, and draft layout changes.
+
 ## 0.2.1
 
 - Check container readiness within a few seconds, without waiting for HA data.

@@ -11,6 +11,21 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Check Safari-compatible ES5 syntax
+        run: npx --yes acorn@8.15.0 --ecma5 ipad_panel/dashboard.js ipad_panel/editor.js >/dev/null
+      - name: Test dashboard and editor in Chromium
+        env:
+          PANEL_PASSWORD: browser-ci-demo-only
+        run: |
+          state=$(mktemp -d)
+          PANEL_STATE_DIR="$state" python ipad_panel/panel.py &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; rm -rf "$state"' EXIT
+          curl -fsS --retry 5 --retry-connrefused http://127.0.0.1:8090/healthz >/dev/null
+          node tests/browser.mjs
   docker:
     name: Docker (${{ matrix.platform }})
     strategy:

@@ -1,6 +1,6 @@
 # Home Assistant iPad Panel
 
-A password-protected wall dashboard for Home Assistant, designed for an iPad 2 on iOS 9. It shows a clock and selected entity states, and can turn selected lights and switches on or off. The server renders plain HTML and CSS; the iPad does not need JavaScript, Lovelace, HACS, or a native app.
+A password-protected wall dashboard for Home Assistant, designed for an iPad 2 on iOS 9. It shows a clock, optional weather, and a customizable widget grid. Tap the whole light or switch tile to toggle it. The server renders plain HTML and CSS, with small ES5 scripts for live updates and the visual editor. No Lovelace, HACS, or native app required.
 
 > The two launch paths are tested against a simulated Home Assistant. A physical iPad 2 and a real HAOS installation still need testing.
 
@@ -30,10 +30,11 @@ cp panel.example.json panel.json
 
 ## Add and control devices
 
-- Sign in, then go to **Settings → Add a device**. Search by friendly name or entity ID, or submit an empty search to browse the first 50 matches. Pick a label and select **Add**. Under **On this panel**, you can rename or remove a tile. No YAML or restart needed. The panel holds up to 24 entities.
-- Back on **Dashboard**, selected `light.*` and `switch.*` entities have **On** and **Off** buttons. Other domains are display-only. Demo mode never sends device commands.
-- Existing YAML/JSON `entities` are imported the first time the updated service starts. After import, manage tiles in the Web UI; later edits to `entities` do not overwrite your selection.
-- In Safari, use **Share → Add to Home Screen** if desired. Check that refresh resumes after sleep or Wi-Fi recovery. The refresh interval defaults to 15 seconds and is configurable from 5 to 300. If HA temporarily fails, the panel marks the last successful data as stale.
+- Go to **Settings → Add a widget**. Search by name or entity ID, filter by type, and pick an item to preview and name it. Results show which devices are already on the panel. Add up to 24 widgets.
+- Select a tile to rename or resize it (**1 × 1** or **2 × 1**). Drag its **Move** handle by touch, tap a free cell, or use the arrows. Use **Save layout** to apply changes, or **Cancel** to discard the draft. Existing tiles migrate automatically.
+- In **Settings**, choose **Light** or **Dark**; theme changes save immediately. Under **Weather next to the clock**, choose a `weather.*` entity to show current temperature and conditions, or **Hide weather**. Weather changes save with the layout.
+- Tap anywhere on a `light.*` or `switch.*` tile. The tile keeps its last confirmed state until HA reports the change; pending or failed requests appear below the tile. Unavailable or stale controls cannot be pressed. Demo controls only simulate changes.
+- If JavaScript is disabled, the dashboard still refreshes and can submit control forms; the visual editor links to basic device settings. Use **Share → Add to Home Screen** in Safari if desired. The last successful update is shown with its date and time; it stays unchanged during a connection outage.
 
 ## Network and password
 

@@ -82,10 +82,10 @@ class Handler(BaseHTTPRequestHandler):
         if not endpoint:
             return
         data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        if endpoint != "/api/services/light/turn_on" or data != {"entity_id": "light.fake_kitchen"}:
+        if endpoint not in {"/api/services/light/turn_on", "/api/services/light/turn_off"} or data != {"entity_id": "light.fake_kitchen"}:
             self.send_error(400)
             return
-        entity["state"] = "on"
+        entity["state"] = endpoint.rsplit("_", 1)[1]
         self.reply([entity])
 HTTPServer(("0.0.0.0", 80), Handler).serve_forever()
 ' >/dev/null

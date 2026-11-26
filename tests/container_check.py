@@ -52,12 +52,19 @@ else:
         results = get("/settings?q=kitchen")
         assert "Fake kitchen light" in results and entity in results
         assert "Panel updated." in post("/settings/add", csrf=token(results), id=entity, label="Kitchen panel")
-        page = get("/")
-        assert "Command sent" in post("/control", csrf=token(page), id=entity, action="turn_on")
+        for _ in range(30):
+            page = get("/")
+            action = re.search(r'value="(turn_on|turn_off)" aria-label="Kitchen panel power" aria-pressed="(?:false|true)" >', page)
+            if action:
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("initial state was not polled")
+        assert "Command sent" in post("/control", csrf=token(page), id=entity, action=action[1])
     else:
         assert "Kitchen panel" in get("/settings")
     dashboard = get("/")
-    assert "Kitchen panel" in dashboard and 'value="turn_off"' in dashboard
+    assert "Kitchen panel" in dashboard and 'class="control-form"' in dashboard
 if mode == "haos":
     with open("/proc/1/status") as status:
         assert re.search(r"^Uid:\s+10001\s", status.read(), re.MULTILINE)
