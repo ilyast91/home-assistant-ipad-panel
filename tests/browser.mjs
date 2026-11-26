@@ -72,11 +72,14 @@ try {
     document.getElementById('save-zone').click()`);
   await wait('document.getElementById("current-zone").textContent === "Current: Europe/Moscow"');
   await js('document.querySelector("[data-theme-choice=light]").click()');
-  await wait('document.documentElement.getAttribute("data-theme") === "light"');
+  await wait('document.getElementById("appearance-note").textContent === "Appearance saved."');
+  await js(`document.querySelector('[data-palette-choice="ocean"]').click()`);
+  await wait('document.documentElement.getAttribute("data-palette") === "ocean" && document.getElementById("appearance-note").textContent === "Appearance saved."');
   await js(`(function () {
     var sensor = '[data-widget="sensor.demo_temperature"]';
     document.querySelector(sensor).click();
-    var rect = document.querySelector('[data-cell="11"]').getBoundingClientRect();
+    var destination = document.querySelector('[data-cell="11"]'); destination.scrollIntoView({block:'center'});
+    var rect = destination.getBoundingClientRect();
     var handle = document.querySelector('[data-grip="light.demo_living"]');
     var touch = { clientX: rect.left + 5, clientY: rect.top + 5 };
     handle.dispatchEvent(Object.assign(new Event('touchstart', { bubbles:true, cancelable:true }), { touches:[touch] }));
@@ -92,7 +95,8 @@ try {
   assert.match(await js(`document.querySelector('[data-widget="sensor.demo_temperature"]').textContent`), /2 × 1/);
   await js(`(function () {
     var handle = document.querySelector('[data-grip="sensor.demo_humidity"]');
-    var cell = document.querySelector('[data-cell="10"]').getBoundingClientRect();
+    var destination = document.querySelector('[data-cell="10"]'); destination.scrollIntoView({block:'center'});
+    var cell = destination.getBoundingClientRect();
     var touch = { clientX: cell.left + 10, clientY: cell.top + 10 };
     handle.dispatchEvent(Object.assign(new Event('touchstart', { bubbles:true, cancelable:true }), { touches:[touch] }));
     handle.dispatchEvent(Object.assign(new Event('touchmove', { bubbles:true, cancelable:true }), { touches:[touch] }));
@@ -123,10 +127,14 @@ try {
   await js(`var type = document.querySelector('#device-search select'); type.value = 'climate';
     document.querySelector('#device-search input').value = ''; document.querySelector('#device-search button').click()`);
   await wait('document.querySelector("#results button") && /Hall thermostat/.test(document.querySelector("#results").textContent)');
-  await js(`document.querySelector('#results button').click(); document.getElementById('add-label').value = 'Терморегулятор гостиная Кондиционер'; document.getElementById('add-widget').click()`);
+  await js(`document.querySelector('#results button').click(); document.getElementById('add-label').value = 'Терморегулятор гостиная Кондиционер'; document.getElementById('add-widget').click();
+    document.querySelector('[data-cell="16"]').click(); document.querySelector('[data-width="2"][data-height="2"]').click()`);
+  assert.match(await js(`document.querySelector('[data-widget="climate.demo_hall"]').textContent`), /2 × 2/);
   await js('document.getElementById("save-layout").click()');
   await wait(`document.querySelector('#dashboard [data-id="sensor.demo_outside"]')`);
   assert.equal(await js('document.documentElement.getAttribute("data-theme")'), 'light');
+  assert.equal(await js('document.documentElement.getAttribute("data-palette")'), 'ocean');
+  assert.equal(await js('!!document.querySelector(".climate-console")'), true);
   assert.equal(await js('document.getElementById("timezone-label").textContent'), 'Europe/Moscow');
   await wait(`document.querySelector('.climate [data-target="temperature"] button[data-direction="up"]:not(:disabled)')`);
   await js(`document.querySelector('.climate [data-target="temperature"] button[data-direction="up"]').click()`);
@@ -157,7 +165,7 @@ try {
       var stepper = document.querySelector('.climate-overview .climate-stepper').getBoundingClientRect();
       var heading = document.querySelector('.climate .tile-label').getBoundingClientRect();
       return { bottom: tile.bottom - Math.max(summary.bottom, stepper.bottom), right: tile.right - Math.max(summary.right, stepper.right),
-               headingGap: summary.top - heading.bottom, controlsGap: stepper.top - summary.bottom };
+               headingGap: summary.left - heading.right, controlsGap: stepper.top - summary.bottom };
     }())`);
     assert.ok(Object.values(space).every(gap => gap >= 0), 'Climate controls overlap or overflow the ' + width + 'px tile: ' + JSON.stringify(space));
     const sensor = await js(`(function () {
@@ -168,9 +176,37 @@ try {
       var vb = value.getBoundingClientRect(), ub = unit.getBoundingClientRect();
       return {wrap: !!text && getComputedStyle(text).whiteSpace === 'normal',
               lines: !!text && text.clientHeight <= 36 && text.clientHeight > 18,
-              aligned: ub.top < vb.bottom && ub.bottom > vb.top && ub.left >= vb.right && Math.abs(ub.bottom - vb.bottom) < 8};
+              aligned: ub.left >= vb.right && ub.top < vb.bottom && ub.bottom < vb.bottom};
     }())`);
     assert.deepEqual(sensor, {wrap: true, lines: true, aligned: true}, 'Bad sensor text layout at ' + width + 'px');
+  }
+  const palettes = ['sage', 'graphite', 'ocean', 'teal', 'indigo', 'lavender', 'amber', 'terracotta'];
+  for (const theme of ['dark', 'light']) {
+    const backgrounds = new Set();
+    for (const palette of palettes) {
+      const result = await js(`(function () {
+        document.documentElement.setAttribute('data-theme', '${theme}');
+        document.documentElement.setAttribute('data-palette', '${palette}');
+        function colors(selector) { return getComputedStyle(document.querySelector(selector)); }
+        function luminance(rgb) {
+          return rgb.match(/\\d+/g).slice(0, 3).map(function (n) { var c = Number(n) / 255;
+            return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4);
+          }).reduce(function (n, c, i) { return n + c * [.2126, .7152, .0722][i]; }, .05);
+        }
+        function contrast(fg, bg) { var a = luminance(fg), b = luminance(bg); return Math.max(a, b) / Math.min(a, b); }
+        var tile = colors('.climate-console'), body = colors('body'), controls = colors('.climate-console .climate-stepper button');
+        return {bg: body.backgroundColor, clock: contrast(colors('#clock').color, body.backgroundColor),
+          label: contrast(colors('.climate-console .tile-label').color, tile.backgroundColor),
+          unit: contrast(colors('[data-id="sensor.demo_temperature"] .tile-unit').color, colors('[data-id="sensor.demo_temperature"] .tile').backgroundColor),
+          link: contrast(colors('nav a').color, body.backgroundColor),
+          buttons: contrast(controls.color, controls.backgroundColor)};
+      }())`);
+      backgrounds.add(result.bg);
+      for (const [key, score] of Object.entries(result)) {
+        if (key !== 'bg') assert.ok(score >= 4.5, `${palette}/${theme} ${key} contrast: ${score}`);
+      }
+    }
+    assert.equal(backgrounds.size, 8, `All ${theme} palettes must have distinct backgrounds`);
   }
   await command('Page.enable');
   await command('Page.addScriptToEvaluateOnNewDocument', { source: `(function () {

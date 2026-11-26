@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, replace
 from threading import RLock
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from appearance import DEFAULT_PALETTE, palette_id
+
 MAX_ENTITIES = 24
 COLUMNS = 4
 CELLS = MAX_ENTITIES * 4
@@ -66,6 +68,7 @@ class Layout:
     demo_weather: str = "weather.demo"
     timezone: str = ""
     ha_timezone: str = ""
+    palette: str = DEFAULT_PALETTE
 
 
 def checked_zone(value):
@@ -107,7 +110,7 @@ class Selection:
                     checked_zone(ha_zone)
                 self.layout = Layout(parse_entities(data["entities"]), weather, theme,
                                      parse_entities(demo_entities) if demo_entities is not None else None,
-                                     demo_weather, zone, ha_zone)
+                                     demo_weather, zone, ha_zone, palette_id(data.get("palette", DEFAULT_PALETTE)))
         else:
             self.write(Layout(tuple(initial)))
 
@@ -157,6 +160,11 @@ class Selection:
         with self.lock:
             preferences(self.weather, theme)
             self.write(replace(self.layout, theme=theme))
+
+    def set_palette(self, palette):
+        value = palette_id(palette)
+        with self.lock:
+            self.write(replace(self.layout, palette=value))
 
     def add(self, entity_id, label):
         with self.lock:

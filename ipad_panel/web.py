@@ -12,11 +12,13 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import available_timezones
 
+from appearance import stylesheet
 from auth import MIN_PASSWORD, LoginForms, Sessions
 from selection import MAX_ENTITIES
 from views import editor_page, fields, navigation, page, render
 
 ASSETS = {f"/{name}": Path(__file__).with_name(name) for name in ("dashboard.js", "editor.js", "style.css")}
+PALETTE_CSS = stylesheet()
 TIMEZONES = sorted(zone for zone in available_timezones() if ("/" in zone or zone == "UTC")
                    and not zone.startswith(("posix/", "right/", "SystemV/")))
 UPSTREAM_ERRORS = (OSError, ValueError, HTTPException)
@@ -164,6 +166,9 @@ def handler(panel):
             if target.path == "/healthz":
                 self.respond("ok\n", kind="text/plain")
                 return
+            if target.path == '/palettes.css':
+                self.respond(PALETTE_CSS, kind='text/css')
+                return
             if target.path in ASSETS:
                 file = ASSETS[target.path]
                 kind = "text/css" if file.suffix == ".css" else "application/javascript"
@@ -208,7 +213,7 @@ def handler(panel):
                 now = datetime.now(timezone.utc)
                 snapshot = panel.snapshot
                 self.respond(render(panel.settings, snapshot, now, entities, csrf, notice, layout.theme,
-                                    status=panel.dashboard(now, snapshot)))
+                                    status=panel.dashboard(now, snapshot), palette=layout.palette))
 
         def send_catalogue(self, query):
             try:
@@ -234,7 +239,7 @@ def handler(panel):
                 return
             path = target.path
             if path not in {"/login", "/logout", "/settings/add", "/settings/rename", "/settings/remove", "/control",
-                            "/layout", "/theme", "/timezone", "/climate"}:
+                            "/layout", "/theme", "/palette", "/timezone", "/climate"}:
                 self.respond("Not found", 404, "text/plain")
                 return
             if not auth.password:
@@ -301,6 +306,16 @@ def handler(panel):
                 panel.next_timezone_check = 0
                 panel.changed.set()
                 self.json_response({"timezone": panel.timezone_mode, "label": panel.timezone_display()[1]})
+                return
+            if path == '/palette':
+                try:
+                    panel.selection.set_palette(data.get('palette'))
+                except ValueError as error:
+                    self.json_response({'error': str(error)}, 400)
+                except OSError:
+                    self.json_response({'error': 'Could not save palette.'}, 500)
+                else:
+                    self.json_response({'palette': panel.selection.layout.palette})
                 return
             if path == "/theme":
                 try:

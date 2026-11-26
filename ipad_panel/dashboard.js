@@ -57,7 +57,7 @@
     var form = slot.querySelector('.climate-modes');
     var signature = state.modes.map(function (mode) { return mode.id; }).join(',');
     var disclosure = slot.querySelector('.climate-disclosure');
-    disclosure.hidden = !signature && !targets.target_temp_low;
+    disclosure.hidden = !signature && (!targets.target_temp_low || !!slot.querySelector('.climate-console'));
     slot.querySelector('.climate-readonly').hidden = !disclosure.hidden;
     if (disclosure.hidden) { disclosure.removeAttribute('open'); }
     if (form.getAttribute('data-modes') !== signature) {

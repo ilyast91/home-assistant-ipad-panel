@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.5
+
+- Use a full climate console on 2×2 tiles, with larger current temperature and dedicated target controls.
+- Raise sensor units alongside the reading and add eight selectable color palettes for both light and dark themes.
+
 ## 0.3.4
 
 - Align sensor values and units on one line and allow up to two lines for widget names without changing the saved grid.

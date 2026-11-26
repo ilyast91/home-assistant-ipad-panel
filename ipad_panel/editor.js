@@ -288,19 +288,30 @@
       else { message.textContent = 'Could not load time zones.'; }
     });
   }
-  function displayTheme(theme) {
-    var options = root.querySelectorAll('[data-theme-choice]');
-    document.documentElement.setAttribute('data-theme', theme);
-    for (var i = 0; i < options.length; i += 1) { options[i].setAttribute('aria-pressed', options[i].getAttribute('data-theme-choice') === theme ? 'true' : 'false'); }
+  function displayAppearance(setting, value) {
+    var attribute = 'data-' + setting + '-choice';
+    var options = root.querySelectorAll('[' + attribute + ']');
+    document.documentElement.setAttribute('data-' + setting, value);
+    for (var i = 0; i < options.length; i += 1) {
+      options[i].setAttribute('aria-pressed', options[i].getAttribute(attribute) === value ? 'true' : 'false');
+    }
   }
-  function changeTheme() {
-    if (themePending) { return; }
-    var choice = this.getAttribute('data-theme-choice');
-    displayTheme(choice); themePending = true;
-    request('/theme', { theme: choice }, function (status, data) {
+  function changeAppearance() {
+    var setting = this.hasAttribute('data-theme-choice') ? 'theme' : 'palette';
+    var message = get('appearance-note'), value = this.getAttribute('data-' + setting + '-choice'), data = {};
+    if (themePending || value === model[setting]) { return; }
+    data[setting] = value;
+    displayAppearance(setting, value);
+    themePending = true; message.textContent = 'Saving appearance…';
+    request('/' + setting, data, function (status, reply) {
       themePending = false;
-      if (status === 200) { model.theme = data.theme; }
-      else { displayTheme(model.theme); note.textContent = data.error || 'Could not save theme.'; }
+      if (status === 200 && reply[setting]) {
+        model[setting] = reply[setting];
+        message.textContent = 'Appearance saved.';
+      } else {
+        displayAppearance(setting, model[setting]);
+        message.textContent = reply.error || 'Could not save appearance. Try again.';
+      }
     });
   }
 
@@ -348,7 +359,7 @@
     if (dirty && !window.confirm('Discard your unsaved layout changes?')) { event.preventDefault(); }
     else { dirty = false; }
   }; }
-  var themes = root.querySelectorAll('[data-theme-choice]');
-  for (var i = 0; i < themes.length; i += 1) { themes[i].onclick = changeTheme; }
+  var choices = root.querySelectorAll('[data-theme-choice], [data-palette-choice]');
+  for (var i = 0; i < choices.length; i += 1) { choices[i].onclick = changeAppearance; }
   setupActions(); draw(); load(); loadWeather(); setupTimezones();
 }());

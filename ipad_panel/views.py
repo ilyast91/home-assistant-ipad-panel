@@ -5,6 +5,7 @@ from pathlib import Path
 from string import Template
 from zoneinfo import ZoneInfo
 
+from appearance import DEFAULT_PALETTE, PALETTES
 from climate import TARGETS
 from selection import CELLS, COLUMNS, MAX_ENTITIES
 
@@ -27,10 +28,10 @@ def glyph(kind):
             f'<path d="{path}"></path></svg>')
 
 
-def page(title, content, refresh=None, navigation='', theme='dark', script=''):
+def page(title, content, refresh=None, navigation='', theme='dark', script='', palette=DEFAULT_PALETTE):
     refresh_tag = f'<noscript><meta http-equiv="refresh" content="{refresh}"></noscript>' if refresh else ''
     return TEMPLATE.substitute(title=escape(title), content=content, refresh=refresh_tag, navigation=navigation,
-                               theme=theme, script=f'<script src="/{script}.js" defer></script>' if script else '')
+                               theme=theme, palette=palette, script=f'<script src="/{script}.js" defer></script>' if script else '')
 
 
 def fields(csrf, entity_id=None):
@@ -70,6 +71,7 @@ def dashboard_data(settings, snapshot, now, weather_id, zone=None, zone_label=No
 
 def climate_tile(entity, state, stale, csrf, heading):
     state = state or {}
+    console = entity.width == entity.height == 2
     active = state.get('available') and not stale
     label = escape(entity.label)
     unit = state.get('unit', '')
@@ -81,7 +83,7 @@ def climate_tile(entity, state, stale, csrf, heading):
     for key, name in TARGETS.items():
         target = targets.get(key)
         value = f'{target["value"]:g} {escape(unit)}'.strip() if target else '—'
-        if key == 'target_temp_low':
+        if key == 'target_temp_low' and not console:
             contents += '</div>'
             if csrf:
                 hidden = '' if state.get('modes') or 'target_temp_low' in targets else ' hidden'
@@ -103,6 +105,15 @@ def climate_tile(entity, state, stale, csrf, heading):
                              f'aria-label="{verb} {label} {name.lower()}" {"" if allowed else "disabled"}>{symbol}</button></form>')
             contents += '</div>'
         contents += '</div>'
+    if console:
+        contents += '</div>'
+        if csrf:
+            hidden = '' if state.get('modes') else ' hidden'
+            contents += (f'<details class="climate-disclosure"{hidden}><summary aria-label="Climate mode and settings">'
+                         f'<span class="climate-mode">{escape(state.get("modeLabel", "Waiting for data"))}</span></summary>'
+                         '<div class="climate-options">')
+        else:
+            contents += f'<p class="climate-mode">{escape(state.get("modeLabel", "Waiting for data"))}</p>'
     if csrf:
         modes = state.get('modes', [])
         mode_enabled = bool(active and modes)
@@ -115,12 +126,12 @@ def climate_tile(entity, state, stale, csrf, heading):
         contents += (f'<form class="climate-form climate-modes" method="post" action="/climate" data-modes="{signature}">'
                      f'{fields(csrf, entity.id)}<input type="hidden" name="action" value="mode">'
                      f'<div class="climate-mode-list">{options}</div></form></div></details>'
-                     f'<p class="climate-mode climate-readonly"{" hidden" if modes or "target_temp_low" in targets else ""}>'
+                     f'<p class="climate-mode climate-readonly"{" hidden" if modes or (not console and "target_temp_low" in targets) else ""}>'
                      f'{escape(state.get("modeLabel", "Waiting for data"))}</p><span class="feedback" role="status"></span>')
-    return f'<div class="tile climate">{contents}</div>'
+    return f'<div class="tile climate{" climate-console" if console else ""}">{contents}</div>'
 
 
-def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', weather_id=None, status=None):
+def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', weather_id=None, status=None, palette=DEFAULT_PALETTE):
     status = status or dashboard_data(settings, snapshot, now, ('weather.demo' if settings.demo else '') if weather_id is None else weather_id)
     parts, narrow_positions, row_count, narrow_row_count, narrow_occupied = [], [], 0, 0, set()
     for entity in entities:
@@ -182,7 +193,7 @@ def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', 
         body += f'<p class="notice" role="status">{escape(notice)}</p>'
     body += (grid or '<p class="empty">No widgets yet. <a href="/edit">Add your first widget</a>.</p>') + '</div>'
     return page(settings.title, body, f'{settings.refresh_seconds};url=/' if notice else settings.refresh_seconds,
-                navigation(csrf) if csrf else '', theme, 'dashboard' if csrf else '')
+                navigation(csrf) if csrf else '', theme, 'dashboard' if csrf else '', palette)
 
 
 def editor_page(panel, csrf):
@@ -190,14 +201,20 @@ def editor_page(panel, csrf):
     widgets = panel.entities if panel.settings.demo else layout.entities
     model = {'entities': [asdict(e) for e in widgets], 'weather': panel.weather_source,
              'theme': layout.theme, 'demo': panel.settings.demo, 'cells': CELLS, 'limit': MAX_ENTITIES,
-             'timezone': panel.timezone_mode}
+             'timezone': panel.timezone_mode, 'palette': layout.palette}
+    palette_buttons = ''.join(
+        f'<button class="palette-choice" type="button" data-palette-choice="{key}" '
+        f'aria-pressed="{str(key == layout.palette).lower()}"><span class="swatch" style="background:{swatch}" '
+        f'aria-hidden="true"></span>{label}</button>' for key, (label, _, _, swatch) in PALETTES.items())
     body = (f'<div id="editor" data-layout="{escape(json.dumps(model))}">{fields(csrf)}'
             '<div class="editor-header"><div><p class="eyebrow">Panel settings</p><h1>Arrange widgets</h1>'
             '<p class="hint">Select a widget. Drag its handle, tap a cell, or use the arrows to move it.</p></div>'
             '<div class="toolbar"><a class="button" id="discard-layout" href="/">Discard draft</a> <button type="button" id="save-layout" class="primary" disabled>Save layout</button></div></div>'
-            '<div class="appearance"><strong>Panel theme</strong><div class="toolbar" role="group" aria-label="Panel theme">'
+            '<section class="appearance" aria-label="Appearance"><div class="theme-row"><strong>Appearance</strong><div class="toolbar" role="group" aria-label="Panel theme">'
             f'<button type="button" data-theme-choice="light" aria-pressed="{str(layout.theme == "light").lower()}">Light</button> '
             f'<button type="button" data-theme-choice="dark" aria-pressed="{str(layout.theme == "dark").lower()}">Dark</button></div></div>'
+            f'<div class="palette-choices" role="group" aria-label="Color palette">{palette_buttons}</div>'
+            '<p id="appearance-note" class="hint" role="status">Theme and palette save immediately.</p></section>'
             '<div class="editor-columns"><section aria-label="Layout"><div id="board" class="board"></div>'
             '<p id="edit-note" class="notice" role="status"></p></section>'
             '<section class="inspector"><h2>Selected widget</h2><p id="selected-id" class="hint">Select a tile</p>'
@@ -229,4 +246,4 @@ def editor_page(panel, csrf):
             '<label>Matching time zones<select id="zone-choice"></select></label>'
             '<button type="button" id="save-zone" disabled>Use selected time zone</button><p id="zone-note" role="status" class="hint">Applies immediately.</p></div></details>'
             '<noscript><p>The visual editor requires JavaScript. <a href="/settings">Open basic device settings</a>.</p></noscript></div>')
-    return page('Panel settings', body, navigation=navigation(csrf, True), theme=layout.theme, script='editor')
+    return page('Panel settings', body, navigation=navigation(csrf, True), theme=layout.theme, script='editor', palette=layout.palette)
