@@ -3,26 +3,22 @@ import os
 import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from html import escape
-from http.client import HTTPException
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from ipaddress import ip_address
+from http.server import ThreadingHTTPServer
 from pathlib import Path
-from string import Template
 from threading import Event, Thread
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-TEMPLATE = Template(Path(__file__).with_name("panel.html").read_text(encoding="utf-8"))
-DEMO_ENTITIES = [("Living room", "22.4", "°C"), ("Humidity", "46", "%"), ("Front door", "Closed", "")]
+from selection import Entity, Selection, parse_entities
+from web import UPSTREAM_ERRORS, handler, render  # Re-exported for tests.
 
-
-@dataclass(frozen=True)
-class Entity:
-    id: str
-    label: str
+DEMO = [
+    (Entity("sensor.demo_temperature", "Living room"), ("22.4", "°C")),
+    (Entity("sensor.demo_humidity", "Humidity"), ("46", "%")),
+    (Entity("binary_sensor.demo_door", "Front door"), ("Closed", "")),
+]
 
 
 @dataclass(frozen=True)
@@ -35,9 +31,11 @@ class Settings:
     allowed_hosts: tuple[str, ...]
     api_url: str = ""
     token: str = field(default="", repr=False)
+    password: str = field(default="", repr=False)
+    secure_cookie: bool = False
 
     @classmethod
-    def from_options(cls, options, api_url="", token=""):
+    def from_options(cls, options, api_url="", token="", password=""):
         if not isinstance(options, dict):
             raise ValueError("configuration must be a JSON object")
         demo = options.get("demo", True)
@@ -57,20 +55,12 @@ class Settings:
         except (ZoneInfoNotFoundError, ValueError) as error:
             raise ValueError("unknown timezone; use an IANA name such as Europe/Berlin") from error
 
-        raw_entities = options.get("entities", [])
-        if not isinstance(raw_entities, list) or len(raw_entities) > 24:
-            raise ValueError("entities must be a list with at most 24 entries")
-        entities = []
-        for item in raw_entities:
-            if not isinstance(item, dict):
-                raise ValueError("each entity must have an id and optional label")
-            entity_id = item.get("id")
-            if not isinstance(entity_id, str) or not re.fullmatch(r"[a-z0-9_]+\.[a-z0-9_]+", entity_id):
-                raise ValueError("invalid entity id; use domain.object_id")
-            label = item.get("label") or entity_id
-            if not isinstance(label, str):
-                raise ValueError("entity label must be a string")
-            entities.append(Entity(entity_id, label))
+        entities = parse_entities(options.get("entities", []))
+        secure_cookie = options.get("secure_cookie", False)
+        if type(secure_cookie) is not bool:
+            raise ValueError("secure_cookie must be true or false")
+        if not isinstance(password, str) or (password and not 12 <= len(password) <= 256):
+            raise ValueError("panel password must be 12–256 characters")
 
         names = options.get("allowed_hosts", ["homeassistant.local"])
         if not isinstance(names, list) or not all(isinstance(name, str) and re.fullmatch(
@@ -79,21 +69,25 @@ class Settings:
             raise ValueError("allowed_hosts must contain hostnames without schemes, ports or wildcards")
         allowed_hosts = ("localhost", *(name.lower().rstrip(".") for name in names))
         if not demo:
-            if not entities or not api_url or not token:
-                raise ValueError("live mode requires at least one entity, an HA API URL and a token")
+            if not api_url or not token:
+                raise ValueError("live mode requires an HA API URL and token")
             parsed = urlsplit(api_url)
             if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username is not None or parsed.query or parsed.fragment:
                 raise ValueError("HA_URL must be an HTTP(S) base URL without credentials, query or fragment")
-        return cls(demo, title, zone, interval, tuple(entities), allowed_hosts, api_url, token)
+        return cls(demo, title, zone, interval, entities, allowed_hosts, api_url, token, password, secure_cookie)
 
 
 def load_settings(options_path, config_path, env):
     if options_path.is_file():
         options = json.loads(options_path.read_text(encoding="utf-8"))
-        return Settings.from_options(options, "http://supervisor/core/api", env.get("SUPERVISOR_TOKEN", ""))
+        if not isinstance(options, dict):
+            raise ValueError("configuration must be a JSON object")
+        return Settings.from_options(options, "http://supervisor/core/api", env.get("SUPERVISOR_TOKEN", ""),
+                                     options.get("panel_password", ""))
     options = json.loads(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
     url = env.get("HA_URL", "").rstrip("/")
-    return Settings.from_options(options, f"{url}/api" if url else "", env.get("HA_TOKEN", ""))
+    return Settings.from_options(options, f"{url}/api" if url else "", env.get("HA_TOKEN", ""),
+                                 env.get("PANEL_PASSWORD", ""))
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -106,22 +100,36 @@ class Snapshot:
     values: tuple[tuple[str, str], ...]
     updated_at: datetime | None = None
     stale: bool = False
+    entities: tuple[Entity, ...] = ()
 
 
 class Panel:
-    def __init__(self, settings):
+    def __init__(self, settings, selection=None):
         self.settings = settings
-        self.labels = [name for name, _, _ in DEMO_ENTITIES] if settings.demo else [e.label for e in settings.entities]
-        self.snapshot = Snapshot(tuple(("—", "") for _ in self.labels))
-        self.opener = build_opener(ProxyHandler({}), NoRedirect())
+        self.selection = selection if selection is not None else Selection(settings.entities)
+        self.snapshot = Snapshot(())
+        self.changed = Event()
+
+    @property
+    def entities(self):
+        return tuple(entity for entity, _ in DEMO) if self.settings.demo else self.selection.entities
+
+    def request(self, endpoint, payload=None, max_size=262144):
+        headers = {"Authorization": f"Bearer {self.settings.token}", "Accept": "application/json"}
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+        request = Request(f"{self.settings.api_url}{endpoint}",
+                          data=None if payload is None else json.dumps(payload).encode(), headers=headers)
+        opener = build_opener(ProxyHandler({}), NoRedirect())
+        with opener.open(request, timeout=4) as response:
+            data = response.read(max_size + 1)
+        if len(data) > max_size:
+            raise ValueError("HA response exceeds size limit")
+        return json.loads(data)
 
     def get_state(self, entity):
-        request = Request(f"{self.settings.api_url}/states/{entity.id}", headers={
-            "Authorization": f"Bearer {self.settings.token}", "Accept": "application/json",
-        })
         try:
-            with self.opener.open(request, timeout=4) as response:
-                data = json.loads(response.read(262144))
+            data = self.request(f"/states/{entity.id}")
         except HTTPError as error:
             error.close()
             if error.code == 404:
@@ -134,101 +142,72 @@ class Panel:
         state = data["state"]
         return state, unit if isinstance(unit, str) and state not in {"unknown", "unavailable"} else ""
 
+    def catalogue(self):
+        states = self.request("/states", max_size=16 * 1024 * 1024)
+        if not isinstance(states, list):
+            raise ValueError("invalid HA catalogue")
+        entities = {}
+        for item in states:
+            entity_id = item.get("entity_id") if isinstance(item, dict) else None
+            if not isinstance(entity_id, str) or not re.fullmatch(r"[a-z0-9_]+\.[a-z0-9_]+", entity_id):
+                continue
+            attrs = item.get("attributes")
+            name = attrs.get("friendly_name") if isinstance(attrs, dict) else None
+            entities[entity_id] = (name[:120] if isinstance(name, str) and name.strip() else entity_id)
+        return entities
+
+    def control(self, entity_id, action):
+        domain = entity_id.partition(".")[0]
+        with self.selection.lock:
+            if (self.settings.demo or domain not in {"light", "switch"} or
+                    action not in {"turn_on", "turn_off"} or
+                    not any(entity.id == entity_id for entity in self.selection.entities)):
+                return False
+            self.request(f"/services/{domain}/{action}", {"entity_id": entity_id})
+        self.changed.set()
+        return True
+
     def poll(self):
+        entities = self.entities
         try:
-            values = (tuple((value, unit) for _, value, unit in DEMO_ENTITIES) if self.settings.demo
-                      else tuple(self.get_state(entity) for entity in self.settings.entities))
-        except (URLError, OSError, ValueError, HTTPException):
+            values = (tuple(value for _, value in DEMO) if self.settings.demo
+                      else tuple(self.get_state(entity) for entity in entities))
+        except UPSTREAM_ERRORS as error:
+            if isinstance(error, HTTPError):
+                error.close()
             self.snapshot = replace(self.snapshot, stale=True)
         else:
-            self.snapshot = Snapshot(values, datetime.now(timezone.utc))
+            self.snapshot = Snapshot(values, datetime.now(timezone.utc), entities=entities)
 
     def run(self, stop):
         while not stop.is_set():
-            self.poll()
-            stop.wait(self.settings.refresh_seconds)
-
-
-def render(settings, snapshot, now, labels=None):
-    if labels is None:
-        labels = [name for name, _, _ in DEMO_ENTITIES] if settings.demo else [e.label for e in settings.entities]
-    cards = "".join(
-        f'<li><h2>{escape(label)}</h2><p>{escape(value)} <span>{escape(unit)}</span></p></li>'
-        for label, (value, unit) in zip(labels, snapshot.values)
-    )
-    updated = snapshot.updated_at
-    age = (now - updated).total_seconds() if updated else 0
-    stale = snapshot.stale or age > settings.refresh_seconds * 2 + 5
-    if stale:
-        status = "Stale data" if updated else "Home Assistant unavailable"
-    elif not updated:
-        status = "Waiting for data"
-    else:
-        status = "Demo" if settings.demo else "Live"
-    return TEMPLATE.substitute(
-        title=escape(settings.title), clock=now.astimezone(settings.zone).strftime("%H:%M"),
-        refresh=settings.refresh_seconds, status=status, status_class="warn" if stale else "",
-        updated=updated.astimezone(settings.zone).strftime("%Y-%m-%d %H:%M:%S") if updated else "—",
-        cards=cards,
-    )
-
-
-def valid_host(header, names):
-    match = re.fullmatch(r"(\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9][a-zA-Z0-9.-]*)(?::[0-9]{1,5})?", header)
-    if not match:
-        return False
-    host = match[1].lower().rstrip(".")
-    try:
-        ip_address(host.strip("[]"))
-    except ValueError:
-        return host in names
-    return True
-
-
-def handler(panel):
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            hosts = self.headers.get_all("Host", [])
-            if len(hosts) != 1 or not valid_host(hosts[0], panel.settings.allowed_hosts):
-                self.send_error(400, "Unrecognized Host; check allowed_hosts")
-                return
-            if self.path == "/healthz":
-                body, kind = b"ok\n", "text/plain"
-            elif self.path in {"/", "/index.html"}:
-                body = render(panel.settings, panel.snapshot, datetime.now(timezone.utc), panel.labels).encode()
-                kind = "text/html"
-            else:
-                self.send_error(404)
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", kind + "; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'")
-            self.send_header("X-Frame-Options", "DENY")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, format, *args):
-            pass  # Do not log every kiosk refresh.
-
-    return Handler
+            self.changed.clear()
+            if self.settings.password:
+                self.poll()
+            self.changed.wait(self.settings.refresh_seconds)
 
 
 def main():
+    options = Path("/data/options.json")
+    config = Path("/config/panel.json")
     try:
-        settings = load_settings(Path("/data/options.json"), Path("/config/panel.json"), os.environ)
+        settings = load_settings(options, config, os.environ)
+        state = Path(os.environ["PANEL_STATE_DIR"]) if "PANEL_STATE_DIR" in os.environ else None
+        if state is not None:
+            state.mkdir(parents=True, exist_ok=True)
+            if os.getuid() == 0:
+                os.chown(state, 10001, 10001)
+        # Supervisor options can be root-only; read them before dropping privileges.
+        if os.environ.get("PANEL_DROP_PRIVILEGES") == "1" and os.getuid() == 0:
+            os.setgroups([])
+            os.setgid(10001)
+            os.setuid(10001)
+        selection = Selection(settings.entities, state / "selection.json" if state is not None else None)
     except json.JSONDecodeError:
-        raise SystemExit("Invalid JSON in panel configuration") from None
+        raise SystemExit("Invalid JSON in panel configuration or saved selection") from None
     except (OSError, ValueError) as error:
         raise SystemExit(f"Panel configuration error: {error}") from None
-    # Supervisor can create its options file as root-only. Read it before dropping privileges.
-    if os.environ.get("PANEL_DROP_PRIVILEGES") == "1" and os.getuid() == 0:
-        os.setgroups([])
-        os.setgid(10001)
-        os.setuid(10001)
-    panel = Panel(settings)
+    panel = Panel(settings, selection)
     stop = Event()
     with ThreadingHTTPServer(("0.0.0.0", 8090), handler(panel)) as server:
         Thread(target=panel.run, args=(stop,), daemon=True).start()

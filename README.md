@@ -1,31 +1,17 @@
 # Home Assistant iPad Panel
 
-A read-only wall dashboard for Home Assistant, designed for an iPad 2 on iOS 9. It shows a clock, selected entity states, and the time of the last successful update. The server renders plain HTML and CSS, and the page refreshes without JavaScript. No Lovelace, HACS, or iPad app required.
+A password-protected wall dashboard for Home Assistant, designed for an iPad 2 on iOS 9. It shows a clock and selected entity states, and can turn selected lights and switches on or off. The server renders plain HTML and CSS; the iPad does not need JavaScript, Lovelace, HACS, or a native app.
 
-> Early version. The same server runs as a Home Assistant OS App or a Docker Compose service. It is designed for iOS 9, but has not been tested on a physical iPad 2 or a real HAOS Supervisor.
+> The two launch paths are tested against a simulated Home Assistant. A physical iPad 2 and a real HAOS installation still need testing.
 
 ## Home Assistant OS
 
-1. Go to **Settings → Apps → App store → ⋮ → Repositories** (called **Add-ons** on older releases) and add `https://github.com/ilyast91/home-assistant-ipad-panel`.
-2. Install **iPad Panel**. In its **Network** settings, set the host port for `8090/tcp` to `8090` (or another free port; the port is disabled by default). Start the App in its default demo mode.
-3. On the iPad, open `http://<HAOS-LAN-IP>:8090/` in Safari. Use the port you set above. The page does not go through Home Assistant Ingress. If you prefer a hostname other than `homeassistant.local`, add it to `allowed_hosts`.
-4. For real data, edit the App configuration (YAML mode example below), save, and restart it. The App uses the Supervisor-provided token; **do not create or enter a separate HA token**.
+1. In Home Assistant, open **Settings → Apps → App store → ⋮ → Repositories** (**Add-ons** on older releases). Add `https://github.com/ilyast91/home-assistant-ipad-panel` and install **iPad Panel**.
+2. In the App's **Configuration** tab, set `panel_password` to a unique password of at least 12 characters. Keep `demo: true` for a test without connecting to your entities. Save and start the App.
+3. Click **Open Web UI** or open **`http://<HAOS-LAN-IP>:8090/`** in Safari. Port **8090** is enabled on new installations. If the link times out after an upgrade, open the App's **Network** tab, enter `8090` next to `8090/tcp`, save and restart. If `8090` is in use, choose a free host port and use it in the URL.
+4. For your own devices, set `demo: false`, save, and restart. The App uses the Supervisor-provided token, so no separate HA token is required. In the panel, sign in and open **Settings** to add devices.
 
-```yaml
-demo: false
-title: Home Panel
-timezone: Europe/Berlin
-refresh_seconds: 15
-allowed_hosts:
-  - homeassistant.local
-entities:
-  - id: sensor.living_room_temperature
-    label: Living room
-  - id: binary_sensor.front_door
-    label: Front door
-```
-
-The App is built locally by Supervisor on `amd64` or `aarch64`. These are **server** architectures, not the iPad's architecture.
+Use the panel URL directly, not HA Ingress. If using a custom DNS hostname instead of an IP address or `homeassistant.local`, list it under `allowed_hosts`. App builds are available on `amd64` and `aarch64` servers regardless of the iPad's processor.
 
 ## Home Assistant Container / Docker Compose
 
@@ -34,23 +20,25 @@ git clone https://github.com/ilyast91/home-assistant-ipad-panel.git
 cd home-assistant-ipad-panel
 cp .env.example .env
 cp panel.example.json panel.json
-docker compose up -d --build
 ```
 
-The example starts in **demo mode**. By default the panel is reachable only at `http://127.0.0.1:8090/` on the Docker host. To open it from the iPad, set `PANEL_BIND_IP` in `.env` to the Docker host's LAN IPv4 address, then run `docker compose up -d` again. Open `http://<Docker-host-LAN-IP>:8090/` on the iPad.
+1. Set `PANEL_PASSWORD` (12+ characters) in `.env`. The example publishes port `8090` on the LAN. For tighter binding set `PANEL_BIND_IP` to the Docker host's LAN address, or `127.0.0.1` for local testing only. An existing `.env` may still use `127.0.0.1`; change it if the iPad cannot connect.
+2. Run `docker compose up -d --build`. Open **`http://<Docker-host-LAN-IP>:8090/`** on the iPad and sign in. The example starts in demo mode.
+3. For real devices, set `HA_URL` (the base URL **reachable from the panel container**, e.g. `http://192.168.1.10:8123`, without `/api`) and `HA_TOKEN` (a [long-lived access token](https://www.home-assistant.io/docs/authentication/#long-lived-access-token) from a separate non-admin HA user when possible). Set `"demo": false` in `panel.json`, then run `docker compose up -d --force-recreate`.
 
-For real data:
+`localhost` inside the panel container is not the HA container. If both containers share an explicit Docker network, you can use the HA service name instead. The dashboard selection lives in the `panel-data` volume; do not remove it with `docker compose down -v` unless you want to reset the saved selection.
 
-1. Set `HA_URL` in `.env` to the **base URL that the panel container can reach**, e.g. `http://192.168.1.10:8123`, without `/api`. `localhost` inside the panel container is not the HA container. If both services share a Docker network, the HA service name also works.
-2. Set `HA_TOKEN` to a [long-lived access token](https://www.home-assistant.io/docs/authentication/#long-lived-access-token) from the HA profile. Prefer a separate non-admin user. Do not commit `.env`.
-3. Edit `panel.json`: set `"demo": false` and add your entity IDs, e.g. `"entities": [{"id": "sensor.living_room_temperature", "label": "Living room"}]`. Set `timezone` to an IANA name such as `Europe/Berlin`. Apply both files with `docker compose up -d --force-recreate`.
+## Add and control devices
 
-## Use on the iPad
+- Sign in, then go to **Settings → Add a device**. Search by friendly name or entity ID, or submit an empty search to browse the first 50 matches. Pick a label and select **Add**. Under **On this panel**, you can rename or remove a tile. No YAML or restart needed. The panel holds up to 24 entities.
+- Back on **Dashboard**, selected `light.*` and `switch.*` entities have **On** and **Off** buttons. Other domains are display-only. Demo mode never sends device commands.
+- Existing YAML/JSON `entities` are imported the first time the updated service starts. After import, manage tiles in the Web UI; later edits to `entities` do not overwrite your selection.
+- In Safari, use **Share → Add to Home Screen** if desired. Check that refresh resumes after sleep or Wi-Fi recovery. The refresh interval defaults to 15 seconds and is configurable from 5 to 300. If HA temporarily fails, the panel marks the last successful data as stale.
 
-Open the panel in Safari, then use **Share → Add to Home Screen**. In demo mode you should see a clock and three sample values. For a wall panel, check that the page resumes after sleep and after Wi-Fi reconnects. Refresh is every 15 seconds by default (configurable from 5 to 300). A failed poll leaves the previous values visible and marks them as stale. An unknown entity is shown as unavailable; use the exact entity ID from Home Assistant.
+## Network and password
 
-**Trusted LAN only.** The panel has no login, and anyone who can reach it can read the entities shown on it. Do not expose the port to the internet; keep it behind a LAN firewall. If connecting by DNS name, put that hostname in `allowed_hosts`, without a scheme or port. IP addresses work without adding them. The HA token is never sent to the iPad. Use HTTPS for the upstream HA URL if it crosses an untrusted network.
+Without a password the reachable page only shows setup instructions. Sign-in sessions last up to seven days and are cleared when the panel restarts. The HA token stays on the server. **Plain HTTP is for a trusted LAN only**: it does not encrypt either the password or the session. Do not forward the port to the internet. If you serve the panel through a trusted HTTPS reverse proxy, preserve the original `Host` header and enable `secure_cookie` in the App or `panel.json`; leave it off for direct HTTP. Do not reuse your HA password as the panel password.
 
 ## Development
 
-Python 3.12; the application uses only the standard library. Run tests with `python3 -m unittest discover -s tests -v`. Run the demo without Docker with `python3 ipad_panel/panel.py` (listens on all interfaces on port 8090).
+Python 3.12, standard library only. Run `python3 -m unittest discover -s tests -v` for unit tests, or `./tests/smoke-docker.sh` to check both launch paths against a simulated HA instance. A standalone local demo can be started with `PANEL_PASSWORD='your-test-password' python3 ipad_panel/panel.py` (listens on all interfaces on port 8090).

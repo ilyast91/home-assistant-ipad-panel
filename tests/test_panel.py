@@ -12,7 +12,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ipad_panel"))
-from panel import Panel, Settings, handler, load_settings, render
+from panel import Entity, Panel, Settings, handler, load_settings, render
 
 
 def demo(**options):
@@ -48,11 +48,10 @@ class PanelTests(unittest.TestCase):
             self.assertEqual(compose.token, "manual")
             self.assertEqual(compose.entities[0].label, "Living room")
 
-    def test_rejects_live_without_credentials_or_entities(self):
+    def test_live_requires_credentials_but_accepts_empty_selection(self):
         with self.assertRaises(ValueError):
             Settings.from_options({"demo": False, "entities": [{"id": "sensor.room"}]})
-        with self.assertRaises(ValueError):
-            Settings.from_options({"demo": False}, "http://ha/api", "secret")
+        self.assertEqual(Settings.from_options({"demo": False}, "http://ha/api", "secret").entities, ())
         with self.assertRaises(ValueError):
             demo(entities=[{"id": "sensor.room/../../config"}])
 
@@ -133,15 +132,16 @@ class PanelTests(unittest.TestCase):
         panel.poll()
         now = datetime(2026, 11, 26, 12, tzinfo=timezone.utc)
         snapshot = replace(panel.snapshot, updated_at=now)
-        html = render(panel.settings, snapshot, now)
+        html = render(panel.settings, snapshot, now, panel.entities)
         self.assertIn("&lt;script&gt;", html)
         self.assertNotIn("<script", html)
         self.assertIn('http-equiv="refresh"', html)
         self.assertIn("Demo", html)
         self.assertIn("13:00", html)
         self.assertIn("Last update", html)
-        self.assertIn("Stale data", render(panel.settings, snapshot, now + timedelta(minutes=5)))
-        unsafe = render(panel.settings, replace(snapshot, values=(("<sensor>", "<unit>"),)), now, ["<label>"])
+        self.assertIn("Stale data", render(panel.settings, snapshot, now + timedelta(minutes=5), panel.entities))
+        entity = Entity("sensor.test", "<label>")
+        unsafe = render(panel.settings, replace(snapshot, values=(("<sensor>", "<unit>"),), entities=(entity,)), now, (entity,))
         for item in ("sensor", "unit", "label"):
             self.assertIn(f"&lt;{item}&gt;", unsafe)
 
@@ -149,7 +149,7 @@ class PanelTests(unittest.TestCase):
         panel = Panel(demo())
         with serve(handler(panel)) as url:
             with urlopen(url + "/") as response:
-                self.assertIn(b"Waiting for data", response.read())
+                self.assertIn(b"Set up iPad Panel", response.read())
                 self.assertEqual(response.headers["Cache-Control"], "no-store")
             with urlopen(url + "/healthz") as response:
                 self.assertEqual(response.read(), b"ok\n")
@@ -158,7 +158,7 @@ class PanelTests(unittest.TestCase):
             self.assertEqual(invalid.exception.code, 404)
             with self.assertRaises(HTTPError) as write:
                 urlopen(Request(url + "/", data=b""))
-            self.assertEqual(write.exception.code, 501)
+            self.assertEqual(write.exception.code, 404)
             with self.assertRaises(HTTPError) as rebinding:
                 urlopen(Request(url + "/", headers={"Host": "unconfigured.example"}))
             self.assertEqual(rebinding.exception.code, 400)

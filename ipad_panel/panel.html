@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta http-equiv="refresh" content="$refresh">
+  $refresh
   <title>$title</title>
   <style>
     * { box-sizing: border-box; }
@@ -15,21 +15,30 @@
     h1 { font-size: 26px; margin: 0 0 8px; overflow-wrap: break-word; word-wrap: break-word; }
     .status { color: #a9d7d5; margin: 0 0 24px; }
     .status.warn { color: #ffd281; }
-    ul { list-style: none; margin: 0; padding: 0; font-size: 0; }
-    li { display: inline-block; vertical-align: top; width: 31.33%; margin: 0 2% 16px 0; min-height: 128px; padding: 18px; border: 1px solid #34465a; border-radius: 10px; background: #1b2735; word-wrap: break-word; }
+    a { color: #a9e5ff; }
+    nav { margin-bottom: 24px; }
+    nav form, .entry form { display: inline-block; margin: 6px 12px 6px 0; }
+    nav a { margin-right: 18px; }
+    input, button { font: inherit; color: inherit; background: #1b2735; border: 1px solid #69839c; border-radius: 6px; min-height: 44px; padding: 6px 12px; }
+    input { max-width: 100%; }
+    button { cursor: pointer; background: #243a51; }
+    .entry { padding: 12px 0; border-bottom: 1px solid #34465a; word-wrap: break-word; }
+    .entry code { display: block; color: #becfe0; }
+    .notice { color: #ffd281; }
+    .tiles { list-style: none; margin: 0; padding: 0; font-size: 0; }
+    .tiles li { display: inline-block; vertical-align: top; width: 31.33%; margin: 0 2% 16px 0; min-height: 128px; padding: 18px; border: 1px solid #34465a; border-radius: 10px; background: #1b2735; word-wrap: break-word; }
     h2 { font-size: 18px; color: #becfe0; margin: 0 0 10px; }
     li p { font-size: 36px; line-height: 1.1; margin: 0; }
     li span { font-size: 19px; color: #becfe0; }
-    @media (max-width: 740px) { li { width: 48%; } }
-    @media (max-width: 440px) { .panel { padding: 18px; } li { width: 100%; margin-right: 0; } }
+    .tiles form { font-size: 16px; margin-top: 12px; }
+    @media (max-width: 740px) { .tiles li { width: 48%; } }
+    @media (max-width: 440px) { .panel { padding: 18px; } .tiles li { width: 100%; margin-right: 0; } }
   </style>
 </head>
 <body>
   <main class="panel">
-    <p class="clock">$clock</p>
-    <h1>$title</h1>
-    <p class="status $status_class">$status &middot; Last update: $updated</p>
-    <ul>$cards</ul>
+    $navigation
+    $content
   </main>
 </body>
 </html>

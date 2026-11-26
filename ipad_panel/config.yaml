@@ -1,7 +1,7 @@
 name: iPad Panel
-version: "0.1.0"
+version: "0.2.0"
 slug: ipad_panel
-description: Read-only Home Assistant dashboard for old iPads
+description: Password-protected Home Assistant panel for old iPads
 url: https://github.com/ilyast91/home-assistant-ipad-panel
 arch:
   - aarch64
@@ -12,11 +12,13 @@ stage: experimental
 init: true
 homeassistant_api: true
 ports:
-  8090/tcp: null
+  8090/tcp: 8090
 ports_description:
-  8090/tcp: Panel HTTP (trusted LAN only)
+  8090/tcp: "Panel web UI: http://<HAOS IP>:8090 (trusted LAN only)"
 webui: http://[HOST]:[PORT:8090]/
 options:
+  panel_password: ""
+  secure_cookie: false
   demo: true
   title: Home Panel
   timezone: UTC
@@ -25,6 +27,8 @@ options:
     - homeassistant.local
   entities: []
 schema:
+  panel_password: password
+  secure_cookie: bool
   demo: bool
   title: str
   timezone: str
