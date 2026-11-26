@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- Add four widget sizes and preserve placements. Tall widgets span two rows without stretching their neighbours.
+- Compact climate controls: temperature steppers on the tile, modes and temperature ranges in a popover that does not reflow the grid.
+
 ## 0.3.2
 
 - Add climate widgets with current and target temperatures, thermostat modes, and confirmed temperature changes.

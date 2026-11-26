@@ -29,7 +29,7 @@ class WidgetTests(unittest.TestCase):
             saved = Selection((), path)
             self.assertEqual(saved.theme, "light")
             self.assertEqual(saved.weather, "weather.home")
-            self.assertEqual(asdict(saved.entities[0]), {"id": "sensor.temp", "label": "Room", "cell": 9, "width": 2})
+            self.assertEqual(asdict(saved.entities[0]), {"id": "sensor.temp", "label": "Room", "cell": 9, "width": 2, "height": 1})
 
     def test_bad_positions_overlaps_and_weather_do_not_change_layout(self):
         layout = Selection(())

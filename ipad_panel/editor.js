@@ -39,11 +39,12 @@
     for (var i = 0; i < tiles.length; i += 1) { if (tiles[i].id === id) { return tiles[i]; } }
     return null;
   }
-  function fits(cell, width, ignore) {
-    if (cell < 0 || cell >= model.cells || cell % 4 + width > 4) { return false; }
+  function fits(cell, width, height, ignore) {
+    if (cell < 0 || cell + (height - 1) * 4 >= model.cells || cell % 4 + width > 4) { return false; }
+    var x = cell % 4, y = Math.floor(cell / 4);
     for (var i = 0; i < tiles.length; i += 1) {
-      var other = tiles[i];
-      if (other.id !== ignore && cell < other.cell + other.width && other.cell < cell + width) { return false; }
+      var other = tiles[i], ox = other.cell % 4, oy = Math.floor(other.cell / 4);
+      if (other.id !== ignore && x < ox + other.width && ox < x + width && y < oy + other.height && oy < y + height) { return false; }
     }
     return true;
   }
@@ -52,29 +53,40 @@
     save.disabled = saving;
     note.textContent = text || 'Unsaved layout changes.';
   }
-  function move(cell, width, id, focus) {
+  function move(cell, width, height, id, focus) {
     var tile = find(id || picked);
     if (!tile || saving) { return; }
-    if (!fits(cell, width, tile.id)) { note.textContent = 'This position is occupied or the widget does not fit.'; return; }
+    if (!fits(cell, width, height, tile.id)) {
+      note.textContent = 'This position is occupied or the widget does not fit. Other widgets were not moved.';
+      var selected = board.querySelector('.cell.selected');
+      if (selected) { selected.classList.add('grid-conflict'); }
+      return;
+    }
     picked = tile.id;
-    tile.cell = cell; tile.width = width;
+    tile.cell = cell; tile.width = width; tile.height = height;
     changed(); draw(focus ? picked : null);
   }
   function draw(keepFocus) {
-    var selected = find(picked), slots = {}, i, cells, row, tile, slot, cell, grip, moves;
+    var selected = find(picked), slots = {}, occupied = {}, i, r, c, cells, row, tile, slot, cell, grip, moves;
     var focusId = keepFocus || (document.activeElement && document.activeElement.getAttribute('data-focus'));
     var focusTarget = null;
     for (i = 0, cells = 8; i < tiles.length; i += 1) {
-      cells = Math.max(cells, Math.ceil((tiles[i].cell + 1) / 4) * 4 + 4);
-      slots[tiles[i].cell] = tiles[i];
+      tile = tiles[i];
+      cells = Math.max(cells, (Math.floor(tile.cell / 4) + tile.height + 1) * 4);
+      slots[tile.cell] = tile;
+      for (r = 0; r < tile.height; r += 1) {
+        for (c = 0; c < tile.width; c += 1) { occupied[tile.cell + r * 4 + c] = true; }
+      }
     }
     board.textContent = '';
     for (i = 0; i < Math.min(model.cells, cells); i += 1) {
       if (i % 4 === 0) { row = document.createElement('div'); row.className = 'board-row'; board.appendChild(row); }
       tile = slots[i];
-      slot = document.createElement('div'); slot.className = 'slot w' + (tile ? tile.width : '1');
+      if (!tile && occupied[i]) { continue; }
+      slot = document.createElement('div'); slot.className = tile ? 'slot w' + tile.width + ' h' + tile.height : 'slot w1 h1';
+      slot.style.left = (i % 4 * 25) + '%';
       if (tile) {
-        cell = button(tile.label + ' · ' + tile.width + ' × 1', function () {
+        cell = button(tile.label + ' · ' + tile.width + ' × ' + tile.height, function () {
           picked = this.getAttribute('data-widget'); draw();
         });
         cell.className = 'cell' + (tile.id === picked ? ' selected' : '');
@@ -90,7 +102,7 @@
         grip.setAttribute('aria-label', 'Move ' + tile.label);
         slot.appendChild(grip);
       } else {
-        cell = button('+', function () { var t = find(picked); if (t) { move(Number(this.getAttribute('data-cell')), t.width, t.id, true); } });
+        cell = button('+', function () { var t = find(picked); if (t) { move(Number(this.getAttribute('data-cell')), t.width, t.height, t.id, true); } });
         cell.className = 'cell empty-cell'; cell.setAttribute('data-cell', i);
         cell.setAttribute('aria-label', 'Move to row ' + (Math.floor(i / 4) + 1) + ', column ' + (i % 4 + 1));
         cell.disabled = !selected;
@@ -98,7 +110,6 @@
       }
       if (focusId && cell.getAttribute('data-focus') === focusId) { focusTarget = cell; }
       row.appendChild(slot);
-      if (tile) { i += tile.width - 1; }
     }
     if (focusTarget) { focusTarget.focus(); }
     get('selected-id').textContent = selected ? selected.id : 'Select a widget or add one below.';
@@ -107,7 +118,7 @@
     moves = root.querySelectorAll('[data-width], [data-move]');
     for (i = 0; i < moves.length; i += 1) {
       moves[i].disabled = !selected;
-      if (moves[i].hasAttribute('data-width')) { moves[i].setAttribute('aria-pressed', selected && selected.width === Number(moves[i].getAttribute('data-width')) ? 'true' : 'false'); }
+      if (moves[i].hasAttribute('data-width')) { moves[i].setAttribute('aria-pressed', selected && selected.width === Number(moves[i].getAttribute('data-width')) && selected.height === Number(moves[i].getAttribute('data-height')) ? 'true' : 'false'); }
     }
     if (preview) { updatePreview(preview, true); }
   }
@@ -143,7 +154,7 @@
   }, false);
   function markDestination() {
     var cell = touchCell(drag.touch), tile = find(drag.id);
-    highlight(cell && tile && fits(Number(cell.getAttribute('data-cell')), tile.width, tile.id) ? cell : null);
+    highlight(cell && tile && fits(Number(cell.getAttribute('data-cell')), tile.width, tile.height, tile.id) ? cell : null);
   }
   function endDrag() { highlight(null); window.clearInterval(scrollTimer); drag = null; }
   board.addEventListener('touchend', function (event) {
@@ -152,7 +163,7 @@
     var touch = event.changedTouches[0], cell = touchCell(touch), widget = find(drag.id);
     var moved = drag.moved || Math.abs(touch.clientX - drag.startX) + Math.abs(touch.clientY - drag.startY) > 6;
     endDrag();
-    if (cell && widget) { move(Number(cell.getAttribute('data-cell')), widget.width, widget.id, true); }
+    if (cell && widget) { move(Number(cell.getAttribute('data-cell')), widget.width, widget.height, widget.id, true); }
     else if (!moved && widget) {
       picked = widget.id; draw(picked); note.textContent = 'Scroll if needed, then tap a free cell.';
     } else { note.textContent = 'Drop on a free cell to move the widget.'; }
@@ -162,7 +173,7 @@
   function setupActions() {
     var widths = root.querySelectorAll('[data-width]'), arrows = root.querySelectorAll('[data-move]'), i;
     for (i = 0; i < widths.length; i += 1) { widths[i].onclick = function () {
-      var tile = find(picked); if (tile) { move(tile.cell, Number(this.getAttribute('data-width'))); }
+      var tile = find(picked); if (tile) { move(tile.cell, Number(this.getAttribute('data-width')), Number(this.getAttribute('data-height'))); }
     }; }
     for (i = 0; i < arrows.length; i += 1) { arrows[i].onclick = function () {
       var tile = find(picked), step = Number(this.getAttribute('data-move'));
@@ -170,7 +181,7 @@
       if (Math.abs(step) === 1 && Math.floor((tile.cell + step) / 4) !== Math.floor(tile.cell / 4)) {
         note.textContent = 'This is the edge of the row.'; return;
       }
-      move(tile.cell + step, tile.width);
+      move(tile.cell + step, tile.width, tile.height);
     }; }
   }
   function updatePreview(item, keepLabel) {
@@ -298,7 +309,7 @@
     if (tile && !saving) {
       tile.label = this.value.trim() || tile.id;
       var caption = board.querySelector('.cell.selected');
-      if (caption) { caption.textContent = tile.label + ' · ' + tile.width + ' × 1'; }
+      if (caption) { caption.textContent = tile.label + ' · ' + tile.width + ' × ' + tile.height; }
       changed();
     }
   };
@@ -314,9 +325,9 @@
   add.onclick = function () {
     if (saving || !preview || find(preview.id) || tiles.length >= model.limit) { return; }
     var cell = 0;
-    while (cell < model.cells && !fits(cell, 1, '')) { cell += 1; }
+    while (cell < model.cells && !fits(cell, 1, 1, '')) { cell += 1; }
     if (cell >= model.cells) { note.textContent = 'No free grid cell.'; return; }
-    tiles.push({ id: preview.id, label: get('add-label').value.trim() || preview.label, cell: cell, width: 1 });
+    tiles.push({ id: preview.id, label: get('add-label').value.trim() || preview.label, cell: cell, width: 1, height: 1 });
     picked = preview.id; changed('Widget added to the draft.'); draw(); load();
     if (board.scrollIntoView) { board.scrollIntoView(); }
   };

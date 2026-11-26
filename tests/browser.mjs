@@ -84,7 +84,7 @@ try {
     if (document.getElementById('selected-id').textContent !== 'sensor.demo_temperature') { throw Error('Invalid drop changed selection'); }
     var free = document.querySelector('[data-cell="8"]'); free.focus(); free.click();
     if (document.activeElement.getAttribute('data-widget') !== 'sensor.demo_temperature') { throw Error('Move lost focus'); }
-    document.querySelector('[data-width="2"]').click();
+    document.querySelector('[data-width="2"][data-height="1"]').click();
     window.confirm = function () { return false; };
     document.querySelector('nav a[href="/"]').click();
   }())`);
@@ -99,6 +99,18 @@ try {
     handle.dispatchEvent(Object.assign(new Event('touchend', { bubbles:true, cancelable:true }), { changedTouches:[touch] }));
   }())`);
   await wait(`document.querySelectorAll('.board-row')[2].querySelector('[data-widget="sensor.demo_humidity"]')`);
+  await js(`document.querySelector('[data-widget="sensor.demo_temperature"]').click();
+    document.querySelector('[data-width="2"][data-height="2"]').click()`);
+  assert.match(await js(`document.querySelector('[data-widget="sensor.demo_temperature"]').textContent`), /2 × 2/);
+  assert.equal(await js(`document.querySelector('[data-cell="12"]') === null`), true);
+  await js(`document.querySelector('[data-widget="binary_sensor.demo_door"]').click();
+    document.querySelector('[data-width="1"][data-height="2"]').click()`);
+  assert.match(await js(`document.getElementById('edit-note').textContent`), /occupied/);
+  assert.match(await js(`document.querySelector('[data-widget="binary_sensor.demo_door"]').textContent`), /1 × 1/);
+  await js(`document.querySelector('[data-cell="11"]').click();
+    document.querySelector('[data-width="1"][data-height="2"]').click()`);
+  assert.match(await js(`document.querySelector('[data-widget="binary_sensor.demo_door"]').textContent`), /1 × 2/);
+  assert.equal(await js(`document.querySelector('[data-cell="15"]') === null`), true);
   await js('document.querySelector("#device-search input").value="outdoor"; document.querySelector("#device-search button").click()');
   await wait('document.querySelector("#results button") && /Outdoor temperature/.test(document.querySelector("#results").textContent)');
   await js(`document.querySelector('#results button').click();
@@ -118,11 +130,34 @@ try {
   await wait(`document.querySelector('.climate [data-target="temperature"] button[data-direction="up"]:not(:disabled)')`);
   await js(`document.querySelector('.climate [data-target="temperature"] button[data-direction="up"]').click()`);
   await wait(`document.querySelector('.climate [data-target="temperature"] strong').textContent === '22.5 °C'`);
-  await js(`document.querySelector('.climate-modes select').value = 'cool'; document.querySelector('.climate-modes button').click()`);
+  const geometry = `JSON.stringify(Array.prototype.map.call(document.querySelectorAll('.widget-grid > .slot'), function(slot) {
+    var rect = slot.getBoundingClientRect(); return [rect.left, rect.top, rect.width, rect.height];
+  }))`;
+  const beforeMode = await js(geometry);
+  assert.equal(await js(`(function () {
+    var wide = document.querySelector('[data-id="sensor.demo_temperature"]').getBoundingClientRect();
+    var normal = document.querySelector('[data-id="sensor.demo_humidity"]').getBoundingClientRect();
+    return wide.top === normal.top && wide.height === normal.height * 2 && wide.right <= normal.left;
+  }())`), true);
+  await js(`document.querySelector('.climate-disclosure summary').click()`);
+  await wait(`document.querySelector('.climate-disclosure').open`);
+  assert.equal(await js(geometry), beforeMode);
+  await js(`document.querySelector('.climate-modes button[value="cool"]').click()`);
   await wait(`document.querySelector('.climate-mode').textContent === 'Cooling'`);
-  assert.equal(await js(`document.querySelector('[data-id="sensor.demo_temperature"]').classList.contains('w2')`), true);
-  await command('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 1, mobile: true });
-  assert.equal(await js('document.documentElement.scrollWidth <= window.innerWidth'), true);
+  assert.equal(await js(`document.querySelector('.climate-disclosure').open`), false);
+  assert.equal(await js(`document.querySelector('[data-id="sensor.demo_temperature"]').getAttribute('data-size')`), '2x2');
+  assert.equal(await js(`document.querySelector('[data-id="binary_sensor.demo_door"]').getAttribute('data-size')`), '1x2');
+  for (const [width, height] of [[768, 1024], [375, 667]]) {
+    await command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true });
+    assert.equal(await js('document.documentElement.scrollWidth <= window.innerWidth'), true);
+    const space = await js(`(function () {
+      var tile = document.querySelector('.climate').getBoundingClientRect();
+      var summary = document.querySelector('.climate-disclosure summary').getBoundingClientRect();
+      var stepper = document.querySelector('.climate-overview .climate-stepper').getBoundingClientRect();
+      return { bottom: tile.bottom - Math.max(summary.bottom, stepper.bottom), right: tile.right - Math.max(summary.right, stepper.right) };
+    }())`);
+    assert.ok(space.bottom >= 0 && space.right >= 0, 'Climate controls overflow the ' + width + 'px tile: ' + JSON.stringify(space));
+  }
   await command('Page.enable');
   await command('Page.addScriptToEvaluateOnNewDocument', { source: `(function () {
     var RealXHR = window.XMLHttpRequest, realTimeout = window.setTimeout;

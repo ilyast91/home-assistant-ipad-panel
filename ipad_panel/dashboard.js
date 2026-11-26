@@ -31,7 +31,7 @@
     xhr.send(body || null);
   }
   function climateAvailability(slot) {
-    var inputs = slot.querySelectorAll('button[data-available], select[data-available]');
+    var inputs = slot.querySelectorAll('button[data-available]');
     var busy = pending[slot.getAttribute('data-id')];
     for (var i = 0; i < inputs.length; i += 1) {
       inputs[i].disabled = !!busy || !connected || inputs[i].getAttribute('data-available') !== 'yes';
@@ -42,7 +42,8 @@
     var unit = state.unit ? ' ' + state.unit : '', rows = slot.querySelectorAll('[data-target]');
     var targets = {}, i, j, target, buttons, active = state.available && !stale;
     slot.querySelector('.climate-current').textContent = state.current == null ? '—' : state.current + unit;
-    slot.querySelector('.climate-mode').textContent = state.modeLabel || 'Unavailable';
+    var labels = slot.querySelectorAll('.climate-mode');
+    for (i = 0; i < labels.length; i += 1) { labels[i].textContent = state.modeLabel || 'Unavailable'; }
     for (i = 0; i < state.targets.length; i += 1) { targets[state.targets[i].key] = state.targets[i]; }
     for (i = 0; i < rows.length; i += 1) {
       target = targets[rows[i].getAttribute('data-target')];
@@ -53,20 +54,28 @@
         buttons[j].setAttribute('data-available', active && target && target[buttons[j].getAttribute('data-direction')] ? 'yes' : 'no');
       }
     }
-    var form = slot.querySelector('.climate-modes'), select = form.elements.value;
+    var form = slot.querySelector('.climate-modes');
     var signature = state.modes.map(function (mode) { return mode.id; }).join(',');
-    form.hidden = !signature;
-    if (select.getAttribute('data-modes') !== signature) {
-      var old = select.value;
-      select.length = 1;
-      for (i = 0; i < state.modes.length; i += 1) { select.add(new Option(state.modes[i].label, state.modes[i].id)); }
-      select.value = old;
-      if (select.selectedIndex === -1) { select.selectedIndex = 0; }
-      select.setAttribute('data-modes', signature);
+    var disclosure = slot.querySelector('.climate-disclosure');
+    disclosure.hidden = !signature && !targets.target_temp_low;
+    slot.querySelector('.climate-readonly').hidden = !disclosure.hidden;
+    if (disclosure.hidden) { disclosure.removeAttribute('open'); }
+    if (form.getAttribute('data-modes') !== signature) {
+      var list = form.querySelector('.climate-mode-list');
+      list.textContent = '';
+      for (i = 0; i < state.modes.length; i += 1) {
+        var option = document.createElement('button');
+        option.type = 'submit'; option.name = 'value'; option.value = state.modes[i].id;
+        option.textContent = state.modes[i].label;
+        list.appendChild(option);
+      }
+      form.setAttribute('data-modes', signature);
     }
-    var allowed = active && signature ? 'yes' : 'no';
-    select.setAttribute('data-available', allowed);
-    form.querySelector('button').setAttribute('data-available', allowed);
+    buttons = form.querySelectorAll('button');
+    for (i = 0; i < buttons.length; i += 1) {
+      buttons[i].setAttribute('data-available', active ? 'yes' : 'no');
+      buttons[i].setAttribute('aria-pressed', buttons[i].value === state.mode ? 'true' : 'false');
+    }
     climateAvailability(slot);
   }
   function apply(data, version, only) {
@@ -123,7 +132,7 @@
         text('connection', 'Connection lost');
         text('clock-sync', 'Clock not synchronized');
         document.getElementById('update').className = 'update warning';
-        var buttons = root.querySelectorAll('.control, .climate button, .climate select');
+        var buttons = root.querySelectorAll('.control, .climate button');
         for (var i = 0; i < buttons.length; i += 1) { buttons[i].disabled = true; }
       }
       window.setTimeout(poll, connected ? interval : Math.min(interval, 5000));
@@ -154,12 +163,14 @@
   }
   function climateControl(event) {
     event.preventDefault();
-    var form = this, id = form.elements.id.value, button = form.querySelector('button');
+    var form = this, id = form.elements.id.value, mode = form.elements.action.value === 'mode';
+    var button = mode ? (event.submitter || form._picked) : form.querySelector('button');
+    form._picked = null;
     var slot = form.parentNode;
     while (slot && slot.getAttribute('data-id') !== id) { slot = slot.parentElement; }
-    if (!slot || button.disabled || pending[id]) { return; }
-    var feedback = slot.querySelector('.feedback'), select = form.elements.value;
-    var value = select ? select.value : '', focused = document.activeElement === button;
+    if (!slot || !button || button.disabled || pending[id]) { return; }
+    var feedback = slot.querySelector('.feedback');
+    var value = mode ? button.value : '', focused = document.activeElement === button;
     pending[id] = true;
     climateAvailability(slot);
     slot.setAttribute('aria-busy', 'true');
@@ -169,17 +180,45 @@
       '&value=' + encodeURIComponent(value), function (code, result) {
       delete pending[id]; slot.removeAttribute('aria-busy');
       applied = ++serial;
-      if (code === 200) { apply(result, applied, id); if (select) { select.selectedIndex = 0; } }
+      if (code === 200) {
+        apply(result, applied, id);
+        if (mode) {
+          var disclosure = slot.querySelector('.climate-disclosure');
+          disclosure.removeAttribute('open');
+          if (focused) { disclosure.querySelector('summary').focus(); }
+        }
+      }
       climateAvailability(slot);
       feedback.className = 'feedback' + (code === 200 ? '' : ' error');
       feedback.textContent = code === 200 ? 'State confirmed' : (result.error || 'Could not confirm. Check the device and try again.');
-      if (focused && document.activeElement === document.body && !button.disabled) { button.focus(); }
+      if (focused && !(mode && code === 200) && document.activeElement === document.body && !button.disabled) { button.focus(); }
     });
   }
   var forms = root.querySelectorAll('.control-form');
   for (var j = 0; j < forms.length; j += 1) { forms[j].addEventListener('submit', control, false); }
   var climates = root.querySelectorAll('.climate-form');
-  for (var k = 0; k < climates.length; k += 1) { climates[k].addEventListener('submit', climateControl, false); }
+  for (var k = 0; k < climates.length; k += 1) {
+    climates[k].addEventListener('submit', climateControl, false);
+    climates[k].addEventListener('click', function (event) {
+      if (event.target.name === 'value') { this._picked = event.target; }
+    }, false);
+  }
+  var disclosures = root.querySelectorAll('.climate-disclosure');
+  function closeOthers(keep) {
+    for (var i = 0; i < disclosures.length; i += 1) {
+      if (disclosures[i] !== keep) { disclosures[i].removeAttribute('open'); }
+    }
+  }
+  root.addEventListener('click', function (event) {
+    var node = event.target;
+    while (node !== root && !node.classList.contains('climate-disclosure')) { node = node.parentElement; }
+    closeOthers(node);
+  }, false);
+  root.addEventListener('keydown', function (event) {
+    if (event.keyCode !== 27) { return; }
+    var open = root.querySelector('.climate-disclosure[open]');
+    if (open) { closeOthers(null); open.querySelector('summary').focus(); }
+  }, false);
   window.setInterval(tick, 1000);
   window.setTimeout(poll, interval);
 }());

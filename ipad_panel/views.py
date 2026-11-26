@@ -6,7 +6,7 @@ from string import Template
 from zoneinfo import ZoneInfo
 
 from climate import TARGETS
-from selection import CELLS, MAX_ENTITIES
+from selection import CELLS, COLUMNS, MAX_ENTITIES
 
 TEMPLATE = Template(Path(__file__).with_name('panel.html').read_text(encoding='utf-8'))
 CONTROL_DOMAINS = {'light', 'switch'}
@@ -76,14 +76,22 @@ def climate_tile(entity, state, stale, csrf, heading):
     current = state.get('current')
     current_text = '—' if current is None else f'{current:g} {escape(unit)}'.strip()
     targets = {target['key']: target for target in state.get('targets', [])}
-    contents = (f'{heading}<p class="climate-reading"><span class="climate-caption">Current</span> '
-                f'<strong class="climate-current">{current_text}</strong></p>'
-                f'<p class="climate-mode">{escape(state.get("modeLabel", "Waiting for data"))}</p>')
+    contents = (f'{heading}<div class="climate-overview"><p class="climate-reading" aria-label="Current temperature">'
+                f'<span class="climate-caption">Current</span><strong class="climate-current">{current_text}</strong></p>')
     for key, name in TARGETS.items():
         target = targets.get(key)
         value = f'{target["value"]:g} {escape(unit)}'.strip() if target else '—'
+        if key == 'target_temp_low':
+            contents += '</div>'
+            if csrf:
+                hidden = '' if state.get('modes') or 'target_temp_low' in targets else ' hidden'
+                contents += (f'<details class="climate-disclosure"{hidden}><summary aria-label="Climate mode and settings">'
+                             f'<span class="climate-mode">{escape(state.get("modeLabel", "Waiting for data"))}</span></summary>'
+                             '<div class="climate-options">')
+            else:
+                contents += f'<p class="climate-mode">{escape(state.get("modeLabel", "Waiting for data"))}</p>'
         contents += (f'<div class="climate-target" data-target="{key}"' + ('' if target else ' hidden') + '>'
-                     f'<span class="climate-caption">{name}</span> <strong>{value}</strong>')
+                     f'<div><span class="climate-caption">{name}</span><strong>{value}</strong></div>')
         if csrf:
             contents += '<div class="climate-stepper">'
             for direction, symbol, verb in [('down', '−', 'Decrease'), ('up', '+', 'Increase')]:
@@ -100,21 +108,21 @@ def climate_tile(entity, state, stale, csrf, heading):
         mode_enabled = bool(active and modes)
         disabled = '' if mode_enabled else ' disabled'
         signature = escape(','.join(mode['id'] for mode in modes))
-        options = '<option value="">Choose a mode</option>'
-        for mode in modes:
-            options += f'<option value="{mode["id"]}">{escape(mode["label"])}</option>'
-        hidden = '' if modes else ' hidden'
-        contents += (f'<form class="climate-form climate-modes" method="post" action="/climate"{hidden}>'
+        options = ''.join(f'<button type="submit" name="value" value="{mode["id"]}" '
+                          f'aria-pressed="{str(mode["id"] == state.get("mode")).lower()}" '
+                          f'data-available="{"yes" if mode_enabled else "no"}"{disabled}>{escape(mode["label"])}</button>'
+                          for mode in modes)
+        contents += (f'<form class="climate-form climate-modes" method="post" action="/climate" data-modes="{signature}">'
                      f'{fields(csrf, entity.id)}<input type="hidden" name="action" value="mode">'
-                     f'<label>Mode<select name="value" required data-modes="{signature}"{disabled}>{options}</select></label>'
-                     f'<button type="submit" data-available="{"yes" if mode_enabled else "no"}"{disabled}>Apply</button></form>'
-                     '<span class="feedback" role="status"></span>')
+                     f'<div class="climate-mode-list">{options}</div></form></div></details>'
+                     f'<p class="climate-mode climate-readonly"{" hidden" if modes or "target_temp_low" in targets else ""}>'
+                     f'{escape(state.get("modeLabel", "Waiting for data"))}</p><span class="feedback" role="status"></span>')
     return f'<div class="tile climate">{contents}</div>'
 
 
 def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', weather_id=None, status=None):
     status = status or dashboard_data(settings, snapshot, now, ('weather.demo' if settings.demo else '') if weather_id is None else weather_id)
-    rows = {}
+    parts, narrow_positions, row_count, narrow_row_count, narrow_occupied = [], [], 0, 0, set()
     for entity in entities:
         value, unit = status['values'].get(entity.id, ('—', ''))
         domain = entity.id.partition('.')[0]
@@ -137,20 +145,28 @@ def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', 
             text = 'Unavailable' if value in {'unavailable', 'unknown'} else value
             inner = (f'<div class="tile">{label_html}<strong class="tile-value">{escape(text)}</strong>'
                      f'<span class="tile-unit">{escape(unit)}</span></div>')
-        rows.setdefault(entity.cell // 4, {})[entity.cell % 4] = (entity.width, entity.id, inner)
+        row, column = divmod(entity.cell, COLUMNS)
+        row_count = max(row_count, row + entity.height)
+        size = f'{entity.width}x{entity.height}'
+        # Small screens pack the same tiles into two columns without editing the saved grid.
+        for cell in range(len(entities) * 4):
+            narrow_row, narrow_column = divmod(cell, 2)
+            if narrow_column + entity.width > 2:
+                continue
+            footprint = {cell + r * 2 + c for r in range(entity.height) for c in range(entity.width)}
+            if not narrow_occupied & footprint:
+                narrow_occupied.update(footprint)
+                break
+        narrow_row_count = max(narrow_row_count, narrow_row + entity.height)
+        index = len(parts)
+        narrow_positions.append(f'#widget-{index}{{left:{narrow_column * 50}%!important;top:{narrow_row * 11}rem!important}}')
+        parts.append(f'<li id="widget-{index}" class="slot w{entity.width} h{entity.height}" data-size="{size}" '
+                     f'data-id="{escape(entity.id)}" title="{label}" style="left:{column * 25}%;top:{row * 11}rem">{inner}</li>')
     grid = ''
-    for row in range(max(rows, default=-1) + 1):
-        column, parts = 0, []
-        while column < 4:
-            item = rows.get(row, {}).get(column)
-            if item:
-                width, entity_id, inner = item
-                parts.append(f'<li class="slot w{width}" data-id="{escape(entity_id)}">{inner}</li>')
-                column += width
-            else:
-                parts.append('<li class="slot w1 gap" aria-hidden="true"></li>')
-                column += 1
-        grid += '<ul class="tile-row">' + ''.join(parts) + '</ul>'
+    if parts:
+        narrow_positions.append(f'.widget-grid{{height:{narrow_row_count * 11}rem!important}}')
+        grid = (f'<style>@media (max-width:740px){{{"".join(narrow_positions)}}}</style>'
+                f'<ul class="widget-grid" style="height:{row_count * 11}rem">{"".join(parts)}</ul>')
     weather = status['weather'] or {'value': '', 'unit': '', 'condition': ''}
     weather_html = (
         f'<div class="weather" id="weather-card" {"" if status["weather"] else "hidden"}><span id="weather-icon" aria-hidden="true">{status["weatherIcon"]}</span><div><strong id="weather-value">'
@@ -185,8 +201,10 @@ def editor_page(panel, csrf):
             '<p id="edit-note" class="notice" role="status"></p></section>'
             '<section class="inspector"><h2>Selected widget</h2><p id="selected-id" class="hint">Select a tile</p>'
             '<label>Label<input type="text" id="widget-label" maxlength="120"></label>'
-            '<p class="hint">Size</p><div class="toolbar"><button type="button" data-width="1">1 × 1</button> '
-            '<button type="button" data-width="2">2 × 1</button></div><p class="hint">Position</p><div class="toolbar">'
+            '<p class="hint">Size (width × height)</p><div class="toolbar size-options">'
+            + ' '.join(f'<button type="button" data-width="{w}" data-height="{h}">{w} × {h}</button>'
+                       for w, h in ((1, 1), (2, 1), (1, 2), (2, 2))) +
+            '</div><p class="hint">Position</p><div class="toolbar">'
             '<button type="button" data-move="-1" aria-label="Move left">←</button> '
             '<button type="button" data-move="-4" aria-label="Move up">↑</button> '
             '<button type="button" data-move="4" aria-label="Move down">↓</button> '

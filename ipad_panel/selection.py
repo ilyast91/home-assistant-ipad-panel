@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 MAX_ENTITIES = 24
 COLUMNS = 4
-CELLS = MAX_ENTITIES * 2
+CELLS = MAX_ENTITIES * 4
 ENTITY_ID = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
 
 
@@ -16,6 +16,7 @@ class Entity:
     label: str
     cell: int = 0
     width: int = 1
+    height: int = 1
 
 
 def parse_entities(raw):
@@ -35,17 +36,24 @@ def parse_entities(raw):
             raise ValueError("Widget labels must be at most 120 characters.")
         if entity_id in ids:
             raise ValueError("This entity is already on the panel.")
-        cell = item.get("cell", next((pos for pos in range(CELLS) if pos not in occupied), CELLS))
-        width = item.get("width", 1)
-        if (type(cell) is not int or type(width) is not int or width not in (1, 2) or
-                not 0 <= cell < CELLS or cell % COLUMNS + width > COLUMNS):
+        width, height = item.get("width", 1), item.get("height", 1)
+        if type(width) is not int or type(height) is not int or width not in (1, 2) or height not in (1, 2):
             raise ValueError("A widget does not fit in the grid.")
-        cells = set(range(cell, cell + width))
+        def footprint(cell):
+            return {cell + row * COLUMNS + col for row in range(height) for col in range(width)}
+        def fits(cell):
+            return (type(cell) is int and 0 <= cell < CELLS and cell % COLUMNS + width <= COLUMNS
+                    and cell + (height - 1) * COLUMNS < CELLS)
+        cell = item["cell"] if "cell" in item else next(
+            (pos for pos in range(CELLS) if fits(pos) and not occupied & footprint(pos)), CELLS)
+        if not fits(cell):
+            raise ValueError("A widget does not fit in the grid.")
+        cells = footprint(cell)
         if occupied & cells:
             raise ValueError("Widgets cannot overlap.")
         occupied.update(cells)
         ids.add(entity_id)
-        entities.append(Entity(entity_id, label, cell, width))
+        entities.append(Entity(entity_id, label, cell, width, height))
     return tuple(sorted(entities, key=lambda entity: entity.cell))
 
 

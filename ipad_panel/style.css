@@ -34,8 +34,17 @@ nav form, .entry form { display: inline-block; }
 #clock-sync:empty { display: none; }
 .update time { color: #f1f5e9; font-weight: bold; white-space: nowrap; }
 .notice, .warning { color: #ffd38d; }
-.tile-row { list-style: none; margin: 0 -4px 8px; padding: 0; font-size: 0; }
-.slot { display: inline-block; vertical-align: top; padding: 0 4px; font-size: 16px; }
+.widget-grid { position: relative; list-style: none; margin: 0 -4px; padding: 0; font-size: 0; }
+.slot { vertical-align: top; padding: 0 4px; font-size: 16px; }
+.widget-grid .slot, .board-row .slot { position: absolute; }
+.widget-grid .slot { padding-bottom: .5rem; }
+.widget-grid .h1 { height: 11rem; }
+.widget-grid .h2 { height: 22rem; }
+.widget-grid .tile, .widget-grid .control-form { height: 100%; }
+.widget-grid .tile-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.widget-grid .tile-value { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.widget-grid .tile:focus { outline-offset: -3px; }
+.widget-grid .control-form .feedback { position: absolute; left: 16px; right: 16px; bottom: 10px; pointer-events: none; }
 .w1 { width: 25%; }
 .w2 { width: 50%; }
 .tile { position: relative; display: block; min-height: 114px; width: 100%; padding: 12px; border: 1px solid #44594d; border-radius: 14px; text-align: left; overflow-wrap: break-word; word-wrap: break-word; background: #1c2b25; color: #f1f5e9; }
@@ -47,18 +56,38 @@ nav form, .entry form { display: inline-block; }
 .tile-value { display: inline-block; font-size: 31px; letter-spacing: -.035em; line-height: 1.2; margin: 9px 5px 5px 0; }
 .tile-unit { color: #bbccbf; font-size: 14px; }
 .tile.control { padding-top: 10px; }
-.climate { padding: 12px; }
-.climate-reading { margin: 8px 0 2px; font-size: 22px; }
-.climate-caption { display: block; font-size: 13px; }
-.climate-current { font-size: 25px; }
-.climate-mode { margin: 2px 0 10px; font-size: 14px; font-weight: bold; }
-.climate-target { display: inline-block; margin: 0 12px 8px 0; vertical-align: top; }
-.climate-target[hidden], .climate-form[hidden] { display: none; }
-.climate-stepper form { display: inline-block; margin: 4px 4px 0 0; }
-.climate-stepper button { min-width: 44px; padding: 5px; font-size: 20px; }
-.climate-modes label { margin: 4px 0; }
-.climate-modes select { min-width: 0; }
-.climate-modes button { margin-top: 3px; }
+.climate { padding: 9px 10px; }
+.climate-overview { margin: 4px 0 2px; }
+.climate-reading { min-height: 44px; margin: 0; padding-right: 50%; line-height: 26px; }
+.climate-overview .climate-target { position: relative; display: block; padding: 1px 101px 1px 0; min-height: 45px; }
+.climate-overview .climate-target[hidden] { display: none; }
+.climate-overview .climate-target strong { font-size: 13px; }
+.climate-overview .climate-stepper { position: absolute; right: 0; top: 0; }
+.climate-disclosure, .climate-readonly { position: absolute; top: 41px; right: 10px; max-width: 47%; }
+.climate-caption { display: block; font-size: 11px; }
+.climate-reading .climate-caption { line-height: 12px; }
+.climate-current { font-size: 20px; white-space: nowrap; }
+.climate-mode { font-size: 13px; font-weight: bold; }
+.climate-target { display: inline-block; margin: 0 3px 0 0; vertical-align: middle; }
+.climate-overview .climate-target > div { display: inline-block; vertical-align: middle; }
+.climate-target[hidden], .climate-disclosure[hidden], .climate-readonly[hidden] { display: none; }
+.climate-stepper { white-space: nowrap; }
+.climate-stepper form { display: inline-block; margin: 1px 0; }
+.climate-stepper form + form { margin-left: 8px; }
+.climate-stepper button { min-width: 44px; padding: 4px; font-size: 19px; }
+.climate-disclosure summary { position: relative; display: block; min-height: 44px; padding: 11px 17px 11px 5px; border: 1px solid #53695d; border-radius: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.climate-disclosure summary::-webkit-details-marker { display: none; }
+.climate-disclosure summary:after { position: absolute; right: 4px; content: '▾'; }
+.climate-disclosure[open] summary:after { content: ' ▴'; }
+.climate-options { position: absolute; z-index: 5; min-width: 100%; max-width: 15rem; max-height: 50vh; overflow-y: auto; right: 0; top: 100%; width: 9rem; padding: 8px; border-radius: 12px; background: #192a21; border: 1px solid #657a6b; box-shadow: 0 8px 18px #101a15; }
+.climate-options .climate-target { margin: 4px; }
+.climate-mode-list button { display: inline-block; margin: 4px; padding: 5px 8px; }
+.climate .feedback { overflow-wrap: break-word; }
+.w2 .climate-overview { padding-right: 24%; }
+.w2 .climate-reading { display: inline-block; padding-right: 10px; vertical-align: middle; }
+.w2 .climate-overview .climate-target:not([hidden]) { display: inline-block; }
+.w2 .climate-overview .climate-target strong { font-size: 16px; }
+[data-theme=light] .climate-options { background: #f1f5ed; border-color: #7c9282; box-shadow: 0 8px 18px #a9bcac; }
 .control:active { outline: 2px solid #d8ed8b; outline-offset: -3px; }
 .control .tile-label { padding-right: 19px; }
 .control.is-on { background: #2d3a24; border-color: #859756; }
@@ -78,8 +107,13 @@ nav form, .entry form { display: inline-block; }
 .inspector .toolbar { text-align: left; }
 .inspector .hint { word-wrap: break-word; }
 .board { padding: 8px; }
-.board-row { display: block; font-size: 0; margin: 0 -3px; }
+.board-row { position: relative; height: 8rem; margin: 0 -3px; }
 .board .slot { padding: 3px; }
+.board .h1 { height: 8rem; }
+.board .h2 { height: 16rem; }
+.board .cell { height: 100%; min-height: 0; overflow: hidden; }
+.board [data-widget] { padding-bottom: 42px; }
+.board .handle { position: absolute; bottom: 6px; left: 6px; right: 6px; width: auto; }
 .cell { display: block; position: relative; border: 1px dashed #657a6b; min-height: 86px; width: 100%; padding: 7px; text-align: left; font-size: 13px; word-wrap: break-word; }
 .cell.selected { border: 2px solid #d8ed8b; background: #33422a; }
 .cell.empty-cell { text-align: center; color: #b8cbb8; font-size: 20px; background: #192a21; }
@@ -111,11 +145,12 @@ summary { min-height: 44px; padding: 10px 4px; font-weight: bold; }
 [data-theme=light] .cell.selected { background: #e1edcf; border-color: #3a5e28; }
 [data-theme=light] .cell.empty-cell { background: #f4f7f2; }
 [data-theme=light] .board .drag-target { border-color: #3a5e28; outline-color: #3a5e28; }
+.board .cell.grid-conflict { outline: 2px solid #db7555; outline-offset: -3px; }
 @media (max-width: 740px) {
   .panel { padding: 16px; }
   .clock { font-size: 64px; }
-  .tile-row .w1, .tile-row .w2 { width: 50%; margin-bottom: 6px; }
-  .tile-row .gap { display: none; }
+  .widget-grid .w1 { width: 50%; }
+  .widget-grid .w2 { width: 100%; }
   .editor-columns, .editor-columns > section, .editor-columns > .inspector { display: block; width: 100%; }
   .editor-columns > section:first-child { padding-right: 0; }
   .editor-header, .editor-header > div { display: block; }
@@ -126,7 +161,8 @@ summary { min-height: 44px; padding: 10px 4px; font-weight: bold; }
   .tile { padding: 8px; }
   .glyph { width: 24px; height: 24px; padding: 4px; }
   .tile-value { font-size: 25px; }
-  .climate-stepper form { margin-right: 2px; }
+  .climate-overview .climate-target { padding-right: 98px; }
+  .climate-disclosure, .climate-readonly { right: 8px; }
   .board .slot { padding: 2px; }
   .cell { font-size: 11px; padding: 4px; }
 }
