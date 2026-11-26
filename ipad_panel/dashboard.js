@@ -209,11 +209,28 @@
       if (disclosures[i] !== keep) { disclosures[i].removeAttribute('open'); }
     }
   }
+  function placeMenu(disclosure) {
+    var menu = disclosure.querySelector('.climate-options');
+    var box = disclosure.querySelector('summary').getBoundingClientRect();
+    var above = Math.max(0, box.top - 8), below = Math.max(0, window.innerHeight - box.bottom - 8);
+    var height = Math.min(menu.scrollHeight + 2, window.innerHeight / 2);
+    var upward = below < height && above > below;
+    if (upward) { disclosure.classList.add('opens-up'); }
+    else { disclosure.classList.remove('opens-up'); }
+    menu.style.maxHeight = Math.min(window.innerHeight / 2, upward ? above : below) + 'px';
+  }
+  function placeOpenMenu() {
+    var open = root.querySelector('.climate-disclosure[open]');
+    if (open) { placeMenu(open); }
+  }
   root.addEventListener('click', function (event) {
     var node = event.target;
-    while (node !== root && !node.classList.contains('climate-disclosure')) { node = node.parentElement; }
+    while (node && node !== root && !(node.classList && node.classList.contains('climate-disclosure'))) { node = node.parentElement; }
     closeOthers(node);
+    if (node && node !== root) { window.setTimeout(placeOpenMenu, 0); }
   }, false);
+  window.addEventListener('resize', placeOpenMenu, false);
+  window.addEventListener('scroll', placeOpenMenu, false);
   root.addEventListener('keydown', function (event) {
     if (event.keyCode !== 27) { return; }
     var open = root.querySelector('.climate-disclosure[open]');

@@ -86,7 +86,8 @@ nav form, .entry form { display: inline-block; }
 .climate-disclosure[open] summary:after { content: ' ▴'; }
 .climate-options { position: absolute; z-index: 5; min-width: 100%; max-width: 15rem; max-height: 50vh; overflow-y: auto; right: 0; top: 100%; width: 9rem; padding: 8px; border-radius: 12px; background: #192a21; border: 1px solid #657a6b; box-shadow: 0 8px 18px #101a15; }
 .climate-options .climate-target { margin: 4px; }
-.climate-mode-list button { display: inline-block; margin: 4px; padding: 5px 8px; }
+.climate-disclosure.opens-up .climate-options { top: auto; bottom: 100%; }
+.climate-mode-list button { display: inline-block; min-width: 44px; margin: 4px; padding: 5px 8px; }
 .climate .feedback { overflow-wrap: break-word; }
 .w2 .climate-overview { padding-right: 24%; }
 .w2 .climate-reading { display: inline-block; padding-right: 10px; vertical-align: middle; }

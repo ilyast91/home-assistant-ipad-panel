@@ -71,7 +71,10 @@ try {
     var choice = document.getElementById('zone-choice'); choice.value = 'Europe/Moscow'; choice.dispatchEvent(new Event('change'));
     document.getElementById('save-zone').click()`);
   await wait('document.getElementById("current-zone").textContent === "Current: Europe/Moscow"');
-  await js('document.querySelector("[data-theme-choice=light]").click()');
+  assert.equal(await js(`(function () {
+    document.querySelector('[data-theme-choice="light"]').click();
+    return Array.prototype.every.call(document.querySelectorAll('[data-theme-choice], [data-palette-choice]'), function (choice) { return choice.disabled; });
+  }())`), true, 'Appearance choices should be visibly disabled while saving');
   await wait('document.getElementById("appearance-note").textContent === "Appearance saved."');
   await js(`document.querySelector('[data-palette-choice="ocean"]').click()`);
   await wait('document.documentElement.getAttribute("data-palette") === "ocean" && document.getElementById("appearance-note").textContent === "Appearance saved."');
@@ -151,6 +154,16 @@ try {
   await js(`document.querySelector('.climate-disclosure summary').click()`);
   await wait(`document.querySelector('.climate-disclosure').open`);
   assert.equal(await js(geometry), beforeMode);
+  await js(`(function () {
+    var trigger = document.querySelector('.climate-disclosure summary');
+    window.scrollBy(0, trigger.getBoundingClientRect().bottom - window.innerHeight + 12);
+  }())`);
+  await wait(`document.querySelector('.climate-disclosure').classList.contains('opens-up')`);
+  assert.equal(await js(`(function () {
+    var menu = document.querySelector('.climate-options').getBoundingClientRect();
+    var off = document.querySelector('.climate-modes button[value="off"]').getBoundingClientRect();
+    return menu.top >= 0 && menu.bottom <= window.innerHeight && off.width >= 44 && off.height >= 44;
+  }())`), true, 'Mode menu and touch targets must fit the viewport');
   await js(`document.querySelector('.climate-modes button[value="cool"]').click()`);
   await wait(`document.querySelector('.climate-mode').textContent === 'Cooling'`);
   assert.equal(await js(`document.querySelector('.climate-disclosure').open`), false);

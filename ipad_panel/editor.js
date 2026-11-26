@@ -300,11 +300,16 @@
     var setting = this.hasAttribute('data-theme-choice') ? 'theme' : 'palette';
     var message = get('appearance-note'), value = this.getAttribute('data-' + setting + '-choice'), data = {};
     if (themePending || value === model[setting]) { return; }
+    var focus = document.activeElement === this ? this : null;
     data[setting] = value;
     displayAppearance(setting, value);
-    themePending = true; message.textContent = 'Saving appearance…';
+    themePending = true;
+    for (var i = 0; i < choices.length; i += 1) { choices[i].disabled = true; }
+    message.textContent = 'Saving appearance…';
     request('/' + setting, data, function (status, reply) {
       themePending = false;
+      for (var i = 0; i < choices.length; i += 1) { choices[i].disabled = false; }
+      if (focus && document.activeElement === document.body) { focus.focus(); }
       if (status === 200 && reply[setting]) {
         model[setting] = reply[setting];
         message.textContent = 'Appearance saved.';
