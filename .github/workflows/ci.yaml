@@ -11,4 +11,20 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s tests -v
-      - run: ./tests/smoke-docker.sh
+  docker:
+    name: Docker (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build panel image
+        run: docker build --platform '${{ matrix.platform }}' -t ipad-panel:ci ./ipad_panel
+      - name: Smoke-test the built image (Compose and HAOS configuration)
+        run: ./tests/smoke-docker.sh ipad-panel:ci

@@ -4,12 +4,14 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 work=$(mktemp -d)
 project="ipad-panel-smoke-$$"
-image="$project-ipad-panel"
+image="${1:-$project-ipad-panel}"
 compose() { docker compose -p "$project" "$@"; }
 cleanup() {
     docker rm -f "$project-haos" "$project-supervisor" >/dev/null 2>&1 || true
     compose down --volumes --remove-orphans >/dev/null 2>&1 || true
-    docker image rm "$image" >/dev/null 2>&1 || true
+    if [ "$image" = "$project-ipad-panel" ]; then
+        docker image rm "$image" >/dev/null 2>&1 || true
+    fi
     rm -rf "$work"
 }
 trap cleanup EXIT
@@ -19,7 +21,13 @@ cp "$root/panel.example.json" panel.json
 cp -R "$root/ipad_panel" .
 export PANEL_BIND_IP=127.0.0.1 PANEL_PORT=0 HA_URL= HA_TOKEN= PANEL_PASSWORD=
 compose config -q
-compose up -d --build
+if [ "$#" -eq 0 ]; then
+    compose up -d --build
+else
+    docker image inspect "$image" >/dev/null
+    printf 'services:\n  ipad-panel:\n    image: "%s"\n    pull_policy: never\n' "$image" > compose.override.yaml
+    compose up -d --no-build
+fi
 
 check_panel() {
     container=$1 mode=$2

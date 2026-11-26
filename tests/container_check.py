@@ -11,6 +11,10 @@ for _ in range(30):
     try:
         with urlopen(root, timeout=2) as reply:
             public = reply.read().decode()
+            # Direct HTTP must not receive Secure cookies when HTTPS has not been enabled.
+            cookie = reply.headers["Set-Cookie"]
+            assert cookie.startswith("ipad_panel_login=")
+            assert not any(flag.strip().lower() == "secure" for flag in cookie.split(";")[1:])
     except OSError:
         time.sleep(1)
     else:
@@ -38,6 +42,7 @@ def token(html):
 
 
 page = post("/login", password=password, csrf=token(get("/")))
+assert "Sign out" in page
 assert password not in page and "smoke-token" not in page
 if mode in {"demo", "generated"}:
     assert "Demo" in get("/")
