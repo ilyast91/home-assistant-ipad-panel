@@ -75,7 +75,8 @@ class WidgetTests(unittest.TestCase):
             self.assertEqual(panel.selection.entities, ())
 
     def test_turn_on_requires_readback_and_keeps_previous_value_on_failure(self):
-        panel = Panel(Settings.from_options({"demo": False, "entities": [{"id": "light.study"}]}, "http://ha/api", "token"))
+        panel = Panel(Settings.from_options({"demo": False, "timezone": "UTC", "entities": [{"id": "light.study"}]}, "http://ha/api", "token"))
+        panel.selection.save([{"id": "light.study"}], "")
         with patch.object(panel, "request", side_effect=[{"state": "off"}, [], {"state": "on"}]) as request:
             panel.poll()
             self.assertTrue(panel.confirm_control("light.study", "turn_on"))
@@ -88,7 +89,7 @@ class WidgetTests(unittest.TestCase):
 
     def test_weather_and_stale_dashboard_share_last_success(self):
         panel = Panel(Settings.from_options({"demo": False}, "http://ha/api", "token"))
-        panel.selection.save([], "weather.home")
+        panel.selection.save([{"id": "sensor.room"}], "weather.home")
         with patch.object(panel, "request", return_value={"state": "partlycloudy", "attributes": {
             "temperature": 12, "temperature_unit": "°C",
         }}):

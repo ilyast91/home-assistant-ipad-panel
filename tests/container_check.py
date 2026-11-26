@@ -47,6 +47,13 @@ assert password not in page and "smoke-token" not in page
 if mode in {"demo", "generated"}:
     assert "Demo" in get("/")
 else:
+    for _ in range(30):
+        initial = get("/")
+        if "Europe/Moscow (Home Assistant)" in initial and 'id="weather-value">17 °C</strong>' in initial:
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("Automatic HA weather or time zone was not discovered")
     entity = "light.fake_kitchen"
     if mode != "persisted":
         results = get("/settings?q=kitchen")

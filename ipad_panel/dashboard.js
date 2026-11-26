@@ -27,10 +27,12 @@
       applied = version;
       text('clock', data.clock);
       text('date', data.date);
+      text('timezone-label', data.zoneLabel);
       text('last-update', data.updated);
       text('connection', data.status);
       document.getElementById('update').className = 'update' + (data.stale ? ' warning' : '');
-      if (data.weather && document.getElementById('weather-value')) {
+      document.getElementById('weather-card').hidden = !data.weather;
+      if (data.weather) {
         text('weather-value', data.weather.value + ' ' + data.weather.unit);
         text('weather-condition', data.weather.condition);
         text('weather-icon', data.weatherIcon);

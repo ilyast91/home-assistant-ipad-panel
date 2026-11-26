@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Use the Home Assistant time zone by default on new installations, with a searchable manual override in Settings. Keep the last detected zone across restarts.
+- Detect HA weather entities automatically and show current conditions next to the clock. Existing explicit weather sources are preserved.
+
 ## 0.3.0
 
 - Redesigned dashboard with light/dark themes, full-tile controls, weather, and a visible last-success timestamp.

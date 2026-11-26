@@ -2,6 +2,7 @@ import json
 import re
 from dataclasses import asdict, dataclass, replace
 from threading import RLock
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 MAX_ENTITIES = 24
 COLUMNS = 4
@@ -51,15 +52,26 @@ def parse_entities(raw):
 @dataclass(frozen=True)
 class Layout:
     entities: tuple[Entity, ...]
-    weather: str = ""
+    weather: str = "auto"
     theme: str = "dark"
     demo_entities: tuple[Entity, ...] | None = None
     demo_weather: str = "weather.demo"
+    timezone: str = ""
+    ha_timezone: str = ""
+
+
+def checked_zone(value):
+    if not isinstance(value, str) or not value or len(value) > 100 or value.startswith(("/", "posix/", "right/")):
+        raise ValueError("Choose a valid time zone.")
+    try:
+        return ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError) as error:
+        raise ValueError("Choose a valid time zone.") from error
 
 
 def preferences(weather, theme):
     if (not isinstance(weather, str) or
-            (weather and (len(weather) > 255 or not weather.startswith("weather.") or not ENTITY_ID.fullmatch(weather)))):
+            (weather not in ("", "auto") and (len(weather) > 255 or not weather.startswith("weather.") or not ENTITY_ID.fullmatch(weather)))):
         raise ValueError("Select a weather entity or hide the weather card.")
     if theme not in ("light", "dark"):
         raise ValueError("Choose a light or dark theme.")
@@ -74,12 +86,20 @@ class Selection:
             if isinstance(data, list):  # v0.2 saved just the entity list.
                 self.write(Layout(parse_entities(data)))
             else:
-                weather, theme = data.get("weather", ""), data.get("theme", "dark")
+                stored_weather = data.get("weather")
+                weather = "" if stored_weather == "hidden" else (stored_weather or "auto")
+                theme = data.get("theme", "dark")
                 preferences(weather, theme)
                 demo_entities, demo_weather = data.get("demo_entities"), data.get("demo_weather", "weather.demo")
                 preferences(demo_weather, theme)
+                zone, ha_zone = data.get("timezone", ""), data.get("ha_timezone", "")
+                if zone and zone != "auto":
+                    checked_zone(zone)
+                if ha_zone:
+                    checked_zone(ha_zone)
                 self.layout = Layout(parse_entities(data["entities"]), weather, theme,
-                                     parse_entities(demo_entities) if demo_entities is not None else None, demo_weather)
+                                     parse_entities(demo_entities) if demo_entities is not None else None,
+                                     demo_weather, zone, ha_zone)
         else:
             self.write(Layout(tuple(initial)))
 
@@ -98,7 +118,10 @@ class Selection:
     def write(self, layout):
         if self.path is not None:
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(asdict(layout), ensure_ascii=False), encoding="utf-8")
+            data = asdict(layout)
+            if not layout.weather:
+                data["weather"] = "hidden"
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             tmp.replace(self.path)
         self.layout = layout
 
@@ -109,6 +132,18 @@ class Selection:
                 self.write(replace(self.layout, demo_entities=parse_entities(entities), demo_weather=weather))
             else:
                 self.write(replace(self.layout, entities=parse_entities(entities), weather=weather))
+
+    def set_timezone(self, value):
+        if value != "auto":
+            checked_zone(value)
+        with self.lock:
+            self.write(replace(self.layout, timezone=value))
+
+    def cache_timezone(self, value):
+        checked_zone(value)
+        with self.lock:
+            if self.layout.ha_timezone != value:
+                self.write(replace(self.layout, ha_timezone=value))
 
     def set_theme(self, theme):
         with self.lock:

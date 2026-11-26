@@ -2,7 +2,7 @@
   "demo": true,
   "secure_cookie": false,
   "title": "Home Panel",
-  "timezone": "UTC",
+  "timezone": "auto",
   "refresh_seconds": 15,
   "allowed_hosts": [],
   "entities": []

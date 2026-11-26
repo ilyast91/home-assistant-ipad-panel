@@ -60,6 +60,11 @@ try {
   assert.equal(await js('document.querySelector("button.control").getAttribute("aria-pressed")'), 'false');
   await js(`document.querySelector('a[href="/edit"]').click()`);
   await wait('document.querySelector("#board [data-widget]")');
+  await wait('document.getElementById("zone-choice").options.length > 0');
+  await js(`document.getElementById('timezone-settings').open = true;
+    var search = document.getElementById('zone-query'); search.value = 'Moscow'; search.dispatchEvent(new Event('input'));
+    document.getElementById('save-zone').click()`);
+  await wait('document.getElementById("current-zone").textContent === "Current: Europe/Moscow"');
   await js('document.querySelector("[data-theme-choice=light]").click()');
   await wait('document.documentElement.getAttribute("data-theme") === "light"');
   await js(`document.querySelector('[data-widget="sensor.demo_temperature"]').click(); document.querySelector('[data-cell="8"]').click(); document.querySelector('[data-width="2"]').click()`);
@@ -79,6 +84,7 @@ try {
   await js('document.getElementById("save-layout").click()');
   await wait(`document.querySelector('#dashboard [data-id="sensor.demo_outside"]')`);
   assert.equal(await js('document.documentElement.getAttribute("data-theme")'), 'light');
+  assert.equal(await js('document.getElementById("timezone-label").textContent'), 'Europe/Moscow');
   assert.equal(await js(`document.querySelector('[data-id="sensor.demo_temperature"]').classList.contains('w2')`), true);
   await command('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 1, mobile: true });
   assert.equal(await js('document.documentElement.scrollWidth <= window.innerWidth'), true);

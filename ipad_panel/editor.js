@@ -195,7 +195,7 @@
   function loadWeather() {
     request('/catalogue?type=weather', null, function (status, data) {
       if (status === 200) {
-        var existing = false;
+        var existing = !model.weather || model.weather === 'auto';
         for (var i = 0; i < data.items.length; i += 1) {
           addWeatherOption(data.items[i].id, data.items[i].label);
           existing = existing || data.items[i].id === model.weather;
@@ -203,9 +203,45 @@
         if (model.weather && !existing) { addWeatherOption(model.weather, model.weather + ' (current)'); }
         weather.value = model.weather;
       } else {
-        if (model.weather) { addWeatherOption(model.weather, model.weather + ' (current)'); weather.value = model.weather; }
+        if (model.weather && model.weather !== 'auto') { addWeatherOption(model.weather, model.weather + ' (current)'); }
+        weather.value = model.weather;
         get('weather-note').textContent = 'Weather devices are unavailable. You can keep or hide the current one.';
       }
+    });
+  }
+  function setupTimezones() {
+    var input = get('zone-query'), choice = get('zone-choice'), submit = get('save-zone');
+    var auto = get('auto-zone'), message = get('zone-note'), zones = [], busy = false;
+    function filterZones() {
+      var query = input.value.toLowerCase().trim().replace(/ /g, '_');
+      var matches = zones.filter(function (name) { return name.toLowerCase().indexOf(query) !== -1; });
+      var i, option;
+      choice.textContent = '';
+      for (i = 0; i < Math.min(matches.length, 50); i += 1) {
+        option = document.createElement('option'); option.value = matches[i];
+        option.textContent = matches[i].replace(/_/g, ' '); choice.appendChild(option);
+      }
+      submit.disabled = busy || !matches.length;
+      message.textContent = matches.length > 50 ? 'Type a city or region to narrow the list.' : (matches.length ? 'Applies immediately.' : 'No matching time zones.');
+    }
+    function saveZone(value) {
+      if (busy || !value) { return; }
+      busy = true; auto.disabled = submit.disabled = true;
+      message.textContent = 'Saving time zone…';
+      request('/timezone', { timezone: value }, function (status, data) {
+        busy = false; auto.disabled = false; submit.disabled = !choice.value;
+        if (status === 200) {
+          get('current-zone').textContent = 'Current: ' + data.label;
+          message.textContent = 'Time zone saved.';
+        } else { message.textContent = data.error || 'Could not save the time zone.'; }
+      });
+    }
+    input.oninput = filterZones;
+    submit.onclick = function () { saveZone(choice.value); };
+    auto.onclick = function () { saveZone('auto'); };
+    request('/timezones', null, function (status, data) {
+      if (status === 200 && Array.isArray(data)) { zones = data; filterZones(); }
+      else { message.textContent = 'Could not load time zones.'; }
     });
   }
   function displayTheme(theme) {
@@ -261,5 +297,5 @@
   };
   var themes = root.querySelectorAll('[data-theme-choice]');
   for (var i = 0; i < themes.length; i += 1) { themes[i].onclick = changeTheme; }
-  setupActions(); draw(); load(); loadWeather();
+  setupActions(); draw(); load(); loadWeather(); setupTimezones();
 }());

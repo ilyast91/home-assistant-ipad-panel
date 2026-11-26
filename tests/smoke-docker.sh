@@ -59,6 +59,7 @@ docker run -d --name "$project-supervisor" --network "${project}_default" --netw
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 entity = {"entity_id": "light.fake_kitchen", "state": "off", "attributes": {"friendly_name": "Fake kitchen light"}}
+weather = {"entity_id": "weather.home", "state": "sunny", "attributes": {"temperature": 17, "temperature_unit": "°C"}}
 class Handler(BaseHTTPRequestHandler):
     def reply(self, value):
         self.send_response(200)
@@ -72,9 +73,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         endpoint = self.endpoint()
         if endpoint == "/api/states":
-            self.reply([entity])
+            self.reply([entity, weather])
         elif endpoint == "/api/states/light.fake_kitchen":
             self.reply(entity)
+        elif endpoint == "/api/states/weather.home":
+            self.reply(weather)
+        elif endpoint == "/api/config":
+            self.reply({"time_zone": "Europe/Moscow"})
         elif endpoint:
             self.send_error(404)
     def do_POST(self):
@@ -90,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
 HTTPServer(("0.0.0.0", 80), Handler).serve_forever()
 ' >/dev/null
 
-printf '%s\n' '{"demo":false,"timezone":"Europe/Berlin"}' > panel.json
+printf '%s\n' '{"demo":false}' > panel.json
 export HA_URL=http://supervisor HA_TOKEN=smoke-token
 compose up -d --force-recreate
 check_panel "$(compose ps -q ipad-panel)" compose

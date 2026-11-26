@@ -25,6 +25,7 @@ nav form, .entry form { display: inline-block; }
 .hint, #date, .update { color: #bbccbf; font-size: 14px; }
 .conditions { text-align: right; }
 .weather { display: inline-block; min-width: 145px; padding: 10px 13px; margin-bottom: 5px; background: #1c2b25; border: 1px solid #44594d; border-radius: 14px; text-align: left; }
+.weather[hidden] { display: none; }
 .weather > span { display: inline-block; vertical-align: middle; color: #d8ed8b; font-size: 24px; padding-right: 8px; }
 .weather > div { display: inline-block; vertical-align: middle; }
 .weather strong { display: block; font-size: 25px; line-height: 1.14; }

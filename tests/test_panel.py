@@ -69,9 +69,10 @@ class PanelTests(unittest.TestCase):
                     self.wfile.write(b'{"state":"22.4","attributes":{"unit_of_measurement":"C"}}')
 
         with serve(FakeHA) as url:
-            panel = Panel(Settings.from_options({"demo": False, "entities": [
+            panel = Panel(Settings.from_options({"demo": False, "timezone": "UTC", "entities": [
                 {"id": "sensor.room"}, {"id": "sensor.missing"},
             ]}, url + "/api", "secret"))
+            panel.selection.save([{"id": "sensor.room"}, {"id": "sensor.missing"}], "")
             panel.poll()
             snapshot = panel.snapshot
             self.assertEqual(snapshot.values[0], ("22.4", "C"))

@@ -10,12 +10,15 @@ from ipaddress import ip_address
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
+from zoneinfo import available_timezones
 
 from auth import MIN_PASSWORD, LoginForms, Sessions
 from selection import MAX_ENTITIES
 from views import editor_page, fields, navigation, page, render
 
 ASSETS = {f"/{name}": Path(__file__).with_name(name) for name in ("dashboard.js", "editor.js", "style.css")}
+TIMEZONES = sorted(zone for zone in available_timezones() if ("/" in zone or zone == "UTC")
+                   and not zone.startswith(("posix/", "right/", "SystemV/")))
 UPSTREAM_ERRORS = (OSError, ValueError, HTTPException)
 RESULTS = {
     "saved": "Panel updated.", "sent": "Command sent to Home Assistant. State confirmed.",
@@ -166,7 +169,7 @@ def handler(panel):
                 kind = "text/css" if file.suffix == ".css" else "application/javascript"
                 self.respond(file.read_text(encoding="utf-8"), kind=kind)
                 return
-            if target.path not in {"/", "/index.html", "/settings", "/edit", "/data", "/catalogue"}:
+            if target.path not in {"/", "/index.html", "/settings", "/edit", "/data", "/catalogue", "/timezones"}:
                 self.respond("Not found", 404, "text/plain")
                 return
             if not auth.password:
@@ -177,7 +180,7 @@ def handler(panel):
                 return
             _, csrf = self.session()
             if not csrf:
-                if target.path in {"/data", "/catalogue"}:
+                if target.path in {"/data", "/catalogue", "/timezones"}:
                     self.json_response({"error": "Sign in again to continue."}, 401)
                 else:
                     self.show_sign_in()
@@ -192,6 +195,8 @@ def handler(panel):
                 self.json_response(panel.dashboard(datetime.now(timezone.utc)))
             elif target.path == "/catalogue":
                 self.send_catalogue(query)
+            elif target.path == "/timezones":
+                self.json_response(TIMEZONES)
             elif target.path == "/edit":
                 self.respond(editor_page(panel, csrf))
             elif target.path == "/settings":
@@ -200,8 +205,10 @@ def handler(panel):
             else:
                 layout = panel.selection.layout
                 entities = panel.entities if panel.settings.demo else layout.entities
-                self.respond(render(panel.settings, panel.snapshot, datetime.now(timezone.utc), entities, csrf, notice,
-                                    layout.theme, panel.weather_source))
+                now = datetime.now(timezone.utc)
+                snapshot = panel.snapshot
+                self.respond(render(panel.settings, snapshot, now, entities, csrf, notice, layout.theme,
+                                    status=panel.dashboard(now, snapshot)))
 
         def send_catalogue(self, query):
             try:
@@ -227,7 +234,7 @@ def handler(panel):
                 return
             path = target.path
             if path not in {"/login", "/logout", "/settings/add", "/settings/rename", "/settings/remove", "/control",
-                            "/layout", "/theme"}:
+                            "/layout", "/theme", "/timezone"}:
                 self.respond("Not found", 404, "text/plain")
                 return
             if not auth.password:
@@ -280,6 +287,20 @@ def handler(panel):
             if path == "/logout":
                 auth.revoke(token)
                 self.redirect("/", Set_Cookie=auth.cookie(""))
+                return
+            if path == "/timezone":
+                value = data.get("timezone", "")
+                if value not in TIMEZONES and value != "auto":
+                    self.json_response({"error": "Select a valid time zone."}, 400)
+                    return
+                try:
+                    panel.selection.set_timezone(value)
+                except OSError:
+                    self.json_response({"error": "Could not save the time zone."}, 500)
+                    return
+                panel.next_timezone_check = 0
+                panel.changed.set()
+                self.json_response({"timezone": panel.timezone_mode, "label": panel.timezone_display()[1]})
                 return
             if path == "/theme":
                 try:
@@ -353,7 +374,7 @@ def handler(panel):
                 known = {entity.id for entity in (panel.entities if panel.settings.demo else current.entities)}
                 if current.weather:
                     known.add(current.weather)
-                if weather:
+                if weather not in ("", "auto"):
                     requested.add(weather)
                 if requested - known:
                     available = panel.catalogue()

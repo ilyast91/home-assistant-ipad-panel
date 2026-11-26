@@ -1,5 +1,5 @@
 name: iPad Panel
-version: "0.3.0"
+version: "0.3.1"
 slug: ipad_panel
 description: Password-protected Home Assistant panel for old iPads
 url: https://github.com/ilyast91/home-assistant-ipad-panel
@@ -21,7 +21,7 @@ options:
   secure_cookie: false
   demo: true
   title: Home Panel
-  timezone: UTC
+  timezone: auto
   refresh_seconds: 15
   allowed_hosts: []
   entities: []

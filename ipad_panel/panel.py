@@ -6,14 +6,14 @@ from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from threading import Event, Lock, Thread
-from time import sleep
+from time import monotonic, sleep
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from auth import MIN_PASSWORD, choose_password
-from selection import Entity, Selection, parse_entities
+from selection import ENTITY_ID, Entity, Selection, checked_zone, parse_entities
 from web import UPSTREAM_ERRORS, handler, render  # Re-exported for tests.
 
 DEMO = [
@@ -33,7 +33,7 @@ WEATHER_LABELS = {"partlycloudy": "Partly cloudy", "clear-night": "Clear night",
 class Settings:
     demo: bool
     title: str
-    zone: ZoneInfo
+    zone: ZoneInfo | None
     refresh_seconds: int
     entities: tuple[Entity, ...]
     allowed_hosts: tuple[str, ...]
@@ -55,13 +55,8 @@ class Settings:
         title = options.get("title", "Home Panel")
         if not isinstance(title, str) or not title.strip():
             raise ValueError("title must be a non-empty string")
-        zone = options.get("timezone", "UTC")
-        if not isinstance(zone, str) or not zone or zone.startswith("/"):
-            raise ValueError("timezone must be an IANA name, for example Europe/Berlin")
-        try:
-            zone = ZoneInfo(zone)
-        except (ZoneInfoNotFoundError, ValueError) as error:
-            raise ValueError("unknown timezone; use an IANA name such as Europe/Berlin") from error
+        zone = options.get("timezone", "auto")
+        zone = None if zone == "auto" else checked_zone(zone)
 
         entities = parse_entities(options.get("entities", []))
         secure_cookie = options.get("secure_cookie", False)
@@ -122,6 +117,9 @@ class Panel:
         self.pending = set()
         self.revision = 0
         self.demo_states = dict((entity.id, value) for entity, value in DEMO)
+        self.next_timezone_check = 0
+        self.next_weather_scan = 0
+        self.auto_weather_id = ""
 
     @property
     def entities(self):
@@ -133,6 +131,33 @@ class Panel:
     @property
     def weather_source(self):
         return self.selection.layout.demo_weather if self.settings.demo else self.selection.weather
+
+    @property
+    def timezone_mode(self):
+        return self.selection.layout.timezone or (self.settings.zone.key if self.settings.zone else "auto")
+
+    def timezone_display(self):
+        mode = self.timezone_mode
+        if mode != "auto":
+            return ZoneInfo(mode), mode
+        cached = self.selection.layout.ha_timezone if not self.settings.demo else ""
+        if cached:
+            return ZoneInfo(cached), f"{cached} (Home Assistant)"
+        return ZoneInfo("UTC"), "UTC (demo)" if self.settings.demo else "UTC (until Home Assistant responds)"
+
+    def sync_timezone(self):
+        if self.settings.demo or self.timezone_mode != "auto" or monotonic() < self.next_timezone_check:
+            return
+        self.next_timezone_check = monotonic() + 60
+        try:
+            config = self.request("/config")
+            if isinstance(config, dict):
+                self.selection.cache_timezone(config.get("time_zone"))
+        except UPSTREAM_ERRORS as error:
+            if isinstance(error, HTTPError):
+                error.close()
+        else:
+            self.next_timezone_check = monotonic() + 600
 
     def request(self, endpoint, payload=None, max_size=262144):
         headers = {"Authorization": f"Bearer {self.settings.token}", "Accept": "application/json"}
@@ -170,9 +195,7 @@ class Panel:
         if self.settings.demo:
             return {**{entity.id: entity.label for entity, _ in DEMO}, "weather.demo": "Demo weather",
                     "sensor.demo_outside": "Outdoor temperature"}
-        states = self.request("/states", max_size=16 * 1024 * 1024)
-        if not isinstance(states, list):
-            raise ValueError("invalid HA catalogue")
+        states = self.all_states()
         entities = {}
         for item in states:
             entity_id = item.get("entity_id") if isinstance(item, dict) else None
@@ -182,6 +205,12 @@ class Panel:
             name = attrs.get("friendly_name") if isinstance(attrs, dict) else None
             entities[entity_id] = (name[:120] if isinstance(name, str) and name.strip() else entity_id)
         return entities
+
+    def all_states(self):
+        states = self.request("/states", max_size=16 * 1024 * 1024)
+        if not isinstance(states, list):
+            raise ValueError("Invalid Home Assistant state list.")
+        return states
 
     def control(self, entity_id, action):
         domain = entity_id.partition(".")[0]
@@ -239,21 +268,51 @@ class Panel:
             return DEMO_WEATHER if entity_id else None
         if not entity_id:
             return None
-        data = self.read_state(entity_id)
+        if entity_id == "auto":
+            return self.read_auto_weather()
+        return self.weather_values(entity_id, self.read_state(entity_id))
+
+    def read_auto_weather(self):
+        if self.auto_weather_id and monotonic() < self.next_weather_scan:
+            value = self.weather_values(self.auto_weather_id, self.read_state(self.auto_weather_id))
+            if value["available"]:
+                return value
+        if monotonic() < self.next_weather_scan and not self.auto_weather_id:
+            return None
+        self.next_weather_scan = monotonic() + 60
+        options = {}
+        for item in self.all_states():
+            id_ = item.get("entity_id") if isinstance(item, dict) else None
+            if (isinstance(id_, str) and id_.startswith("weather.") and ENTITY_ID.fullmatch(id_)
+                    and isinstance(item.get("state"), str)):
+                options[id_] = self.weather_values(id_, item)
+        if not options:
+            self.auto_weather_id = ""
+            return None
+        values = sorted(options.values(), key=lambda value: (not value["available"], value["value"] == "—", value["id"]))
+        selected = values[0]
+        self.auto_weather_id = selected["id"]
+        if selected["available"]:
+            self.next_weather_scan = monotonic() + 600
+        return selected
+
+    @staticmethod
+    def weather_values(entity_id, data):
         attributes = data.get("attributes")
         attrs = attributes if isinstance(attributes, dict) else {}
         state = data["state"]
         value = attrs.get("temperature")
         unit = attrs.get("temperature_unit")
         available = state not in {"unknown", "unavailable"}
-        return {"id": entity_id, "condition": WEATHER_LABELS.get(state, state.replace("-", " ").capitalize()),
+        return {"id": entity_id, "available": available, "condition": WEATHER_LABELS.get(state, state.replace("-", " ").capitalize()),
                 "value": str(value) if available and type(value) in (float, int) else "—",
                 "unit": unit if available and type(value) in (float, int) and isinstance(unit, str) else ""}
 
-    def dashboard(self, now):
+    def dashboard(self, now, snapshot=None):
         from views import dashboard_data
-        snapshot = self.snapshot
-        return dashboard_data(self.settings, snapshot, now, self.weather_source)
+        snapshot = self.snapshot if snapshot is None else snapshot
+        zone, label = self.timezone_display()
+        return dashboard_data(self.settings, snapshot, now, self.weather_source, zone, label)
 
     def poll(self):
         entities = self.entities
@@ -265,7 +324,17 @@ class Panel:
             values = (tuple(self.demo_states.get(entity.id, ("4", "°C") if entity.id == "sensor.demo_outside" else ("—", ""))
                             for entity in entities) if self.settings.demo
                       else tuple(self.get_state(entity) for entity in entities))
-            weather = self.read_weather(self.weather_source)
+            try:
+                weather = self.read_weather(self.weather_source)
+            except UPSTREAM_ERRORS as error:
+                if isinstance(error, HTTPError):
+                    error.close()
+                previous = self.snapshot.weather
+                weather = ({**previous, "available": False, "condition": "Unavailable", "value": "—", "unit": ""}
+                           if previous else None)
+                if not entities:
+                    raise
+            self.sync_timezone()
         except UPSTREAM_ERRORS as error:
             if isinstance(error, HTTPError):
                 error.close()

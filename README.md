@@ -32,8 +32,9 @@ cp panel.example.json panel.json
 
 - Go to **Settings → Add a widget**. Search by name or entity ID, filter by type, and pick an item to preview and name it. Results show which devices are already on the panel. Add up to 24 widgets.
 - Select a tile to rename or resize it (**1 × 1** or **2 × 1**). Drag its **Move** handle by touch, tap a free cell, or use the arrows. Use **Save layout** to apply changes, or **Cancel** to discard the draft. Existing tiles migrate automatically.
-- In **Settings**, choose **Light** or **Dark**; theme changes save immediately. Under **Weather next to the clock**, choose a `weather.*` entity to show current temperature and conditions, or **Hide weather**. Weather changes save with the layout.
+- In **Settings**, choose **Light** or **Dark**; theme changes save immediately. Under **Weather next to the clock**, the default **Automatic — Home Assistant** detects a `weather.*` entity and shows current temperature and conditions. You can choose another entity or hide the card. Weather changes save with the layout.
 - Tap anywhere on a `light.*` or `switch.*` tile. The tile keeps its last confirmed state until HA reports the change; pending or failed requests appear below the tile. Unavailable or stale controls cannot be pressed. Demo controls only simulate changes.
+- Under **Settings → Time zone**, use the Home Assistant time zone or search for a city/region and select a manual zone. This applies to the clock and the last update time; downtime does not erase the last detected zone. Existing deployment time zones are preserved until you override them here.
 - If JavaScript is disabled, the dashboard still refreshes and can submit control forms; the visual editor links to basic device settings. Use **Share → Add to Home Screen** in Safari if desired. The last successful update is shown with its date and time; it stays unchanged during a connection outage.
 
 ## Network and password

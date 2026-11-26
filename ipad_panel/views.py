@@ -3,6 +3,7 @@ from dataclasses import asdict
 from html import escape
 from pathlib import Path
 from string import Template
+from zoneinfo import ZoneInfo
 
 from selection import CELLS, MAX_ENTITIES
 
@@ -44,26 +45,28 @@ def navigation(csrf, settings=False):
             f'{fields(csrf)}<button type="submit">Sign out</button></form></nav>')
 
 
-def dashboard_data(settings, snapshot, now, weather_id):
+def dashboard_data(settings, snapshot, now, weather_id, zone=None, zone_label=None):
     updated = snapshot.updated_at
     stale = snapshot.stale or bool(updated and (now - updated).total_seconds() > settings.refresh_seconds * 2 + 5)
-    local = now.astimezone(settings.zone)
-    weather = snapshot.weather if snapshot.weather and snapshot.weather['id'] == weather_id else None
-    if weather_id and not weather:
+    zone = zone or settings.zone or ZoneInfo('UTC')
+    local = now.astimezone(zone)
+    weather = snapshot.weather if snapshot.weather and weather_id in ('auto', snapshot.weather['id']) else None
+    if weather_id not in ('', 'auto') and not weather:
         weather = {'id': weather_id, 'condition': 'Unavailable', 'value': '—', 'unit': ''}
     return {
         'values': {e.id: value for e, value in zip(snapshot.entities, snapshot.values)},
         'clock': local.strftime('%H:%M'), 'date': local.strftime('%A, %d %B'),
-        'updated': updated.astimezone(settings.zone).strftime('%Y-%m-%d %H:%M:%S') if updated else '—',
-        'stale': stale, 'weather': weather,
+        'updated': updated.astimezone(zone).strftime('%Y-%m-%d %H:%M:%S') if updated else '—',
+        'zoneLabel': zone_label or zone.key,
+        'stale': stale, 'weather': {key: weather[key] for key in ('id', 'condition', 'value', 'unit')} if weather else None,
         'weatherIcon': WEATHER_ICONS.get(weather['condition'], '☁') if weather else '',
         'status': ('Stale data' if updated else 'Home Assistant unavailable') if stale else
                   ('Waiting for data' if not updated else ('Demo' if settings.demo else 'Live')),
     }
 
 
-def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', weather_id=None):
-    status = dashboard_data(settings, snapshot, now, ('weather.demo' if settings.demo else '') if weather_id is None else weather_id)
+def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', weather_id=None, status=None):
+    status = status or dashboard_data(settings, snapshot, now, ('weather.demo' if settings.demo else '') if weather_id is None else weather_id)
     rows = {}
     for entity in entities:
         value, unit = status['values'].get(entity.id, ('—', ''))
@@ -99,14 +102,14 @@ def render(settings, snapshot, now, entities, csrf='', notice='', theme='dark', 
                 parts.append('<li class="slot w1 gap" aria-hidden="true"></li>')
                 column += 1
         grid += '<ul class="tile-row">' + ''.join(parts) + '</ul>'
-    weather = status['weather']
-    weather_html = '' if weather is None else (
-        f'<div class="weather"><span id="weather-icon" aria-hidden="true">{status["weatherIcon"]}</span><div><strong id="weather-value">'
+    weather = status['weather'] or {'value': '', 'unit': '', 'condition': ''}
+    weather_html = (
+        f'<div class="weather" id="weather-card" {"" if status["weather"] else "hidden"}><span id="weather-icon" aria-hidden="true">{status["weatherIcon"]}</span><div><strong id="weather-value">'
         f'{escape(weather["value"])} {escape(weather["unit"])}</strong>'
         f'<span id="weather-condition">{escape(weather["condition"])}</span></div></div>')
     body = (f'<div id="dashboard" data-interval="{settings.refresh_seconds}"><header class="overview">'
             f'<div><p class="eyebrow">{escape(settings.title)}</p><h1 class="clock" id="clock">{status["clock"]}</h1>'
-            f'<p id="date">{status["date"]}</p></div><div class="conditions">{weather_html}'
+            f'<p id="date">{status["date"]}</p><p class="hint" id="timezone-label">{escape(status["zoneLabel"])}</p></div><div class="conditions">{weather_html}'
             f'<p class="update{" warning" if status["stale"] else ""}" id="update"><span id="connection">{status["status"]}</span> '
             f'· Last update <time id="last-update">{status["updated"]}</time></p></div></header>')
     if notice:
@@ -120,7 +123,8 @@ def editor_page(panel, csrf):
     layout = panel.selection.layout
     widgets = panel.entities if panel.settings.demo else layout.entities
     model = {'entities': [asdict(e) for e in widgets], 'weather': panel.weather_source,
-             'theme': layout.theme, 'demo': panel.settings.demo, 'cells': CELLS, 'limit': MAX_ENTITIES}
+             'theme': layout.theme, 'demo': panel.settings.demo, 'cells': CELLS, 'limit': MAX_ENTITIES,
+             'timezone': panel.timezone_mode}
     body = (f'<div id="editor" data-layout="{escape(json.dumps(model))}">{fields(csrf)}'
             '<div class="editor-header"><div><p class="eyebrow">Panel settings</p><h1>Arrange widgets</h1>'
             '<p class="hint">Select a widget. Drag its handle, tap a cell, or use the arrows to move it.</p></div>'
@@ -148,6 +152,13 @@ def editor_page(panel, csrf):
             '<section class="inspector"><h2>Preview</h2><div id="preview" class="tile"><span class="hint">Choose a result to preview it.</span></div>'
             '<label>Label on panel<input id="add-label" maxlength="120"></label><button id="add-widget" class="primary" type="button" disabled>Add to layout</button></section></div></div></details>'
             '<details id="weather-settings"><summary>Weather next to the clock</summary><div class="catalogue"><label>Weather source<select id="weather-source">'
-            '<option value="">Hide weather</option></select></label><p id="weather-note" role="status" class="hint">Part of the layout draft.</p></div></details>'
+            '<option value="auto">Automatic — Home Assistant</option><option value="">Hide weather</option></select></label>'
+            '<p id="weather-note" role="status" class="hint">Change this with Save layout.</p></div></details>'
+            '<details id="timezone-settings"><summary>Time zone</summary><div class="catalogue">'
+            f'<p id="current-zone" class="hint">Current: {escape(panel.timezone_display()[1])}</p>'
+            '<button type="button" id="auto-zone">Use Home Assistant time zone</button>'
+            '<label>Find a city or time zone<input type="search" id="zone-query" placeholder="Moscow, Europe/Berlin, UTC"></label>'
+            '<label>Matching time zones<select id="zone-choice"></select></label>'
+            '<button type="button" id="save-zone" disabled>Use selected time zone</button><p id="zone-note" role="status" class="hint">Applies immediately.</p></div></details>'
             '<noscript><p>The visual editor requires JavaScript. <a href="/settings">Open basic device settings</a>.</p></noscript></div>')
     return page('Panel settings', body, navigation=navigation(csrf, True), theme=layout.theme, script='editor')
